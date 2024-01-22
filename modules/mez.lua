@@ -550,9 +550,16 @@ function Module:OnZone()
     -- Zone Handler
 end
 
+function Module:OnCombatModeChanged()
+end
+
 function Module:DoGetState()
     -- Reture a reasonable state if queried
     return "TODO"
+end
+
+function Module:GetCommandHandlers()
+    return { module = self._name, CommandHandlers = {}, }
 end
 
 ---@param cmd string
