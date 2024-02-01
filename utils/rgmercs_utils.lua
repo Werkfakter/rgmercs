@@ -1844,17 +1844,21 @@ function Utils.AutoCampCheck(config, tempConfig)
         local navTo = string.format("locyxz %d %d %d", tempConfig.AutoCampY, tempConfig.AutoCampX, tempConfig.AutoCampZ)
         if mq.TLO.Navigation.PathExists(navTo)() then
             Utils.DoCmd("/nav %s", navTo)
-            while mq.TLO.Navigation.Active() do
+            while mq.TLO.Navigation.Active() and mq.TLO.Navigation.Velocity() > 0 do
                 mq.delay(10)
                 mq.doevents()
             end
         else
             Utils.DoCmd("/moveto loc %d %d|on", tempConfig.AutoCampY, tempConfig.AutoCampX)
-            while mq.TLO.MoveTo.Moving() do
+            while mq.TLO.MoveTo.Moving() and not mq.TLO.MoveTo.Stopped() do
                 mq.delay(10)
                 mq.doevents()
             end
         end
+    end
+
+    if mq.TLO.Navigation.Active() then
+        Utils.DoCmd("/nav stop")
     end
 end
 
@@ -3109,7 +3113,7 @@ function Utils.RenderOptionNumber(id, text, cur, min, max, step)
     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.5, 0.5, 0.5, 0.8)
     ImGui.PushStyleColor(ImGuiCol.Button, 1.0, 1.0, 1.0, 0.2)
     ImGui.PushStyleColor(ImGuiCol.FrameBg, 1.0, 1.0, 1.0, 0)
-    local input, changed = ImGui.InputInt(text, cur, step)
+    local input, changed = ImGui.InputInt(text, cur, step, 1, ImGuiInputTextFlags.None)
     ImGui.PopStyleColor(4)
     ImGui.PopID()
 
@@ -3167,11 +3171,21 @@ function Utils.RenderSettingsTable(settings, settingNames, defaults, category)
                         ImGui.Text((defaults[k].DisplayName or "None"))
                         ImGui.TableNextColumn()
                         ImGui.PushID(k .. "__btn")
-                        if ImGui.SmallButton(settings[k]:len() > 0 and settings[k] or "[Drop Here]") then
+                        ImGui.PushFont(ImGui.ConsoleFont)
+                        local displayCharCount = 11
+                        local nameLen = settings[k]:len()
+                        local maxStart = (nameLen - displayCharCount) + 1
+                        local startDisp = (os.clock() % maxStart) + 1
+
+                        if ImGui.SmallButton(nameLen > 0 and settings[k]:sub(startDisp, (startDisp + displayCharCount - 1)) or "[Drop Here]") then
                             if mq.TLO.Cursor() then
                                 settings[k] = mq.TLO.Cursor.Name()
                                 pressed = true
                             end
+                        end
+                        ImGui.PopFont()
+                        if nameLen > 0 then
+                            Utils.Tooltip(settings[k])
                         end
                         ImGui.SameLine()
                         if ImGui.SmallButton(ICONS.MD_CLEAR) then

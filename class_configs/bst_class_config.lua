@@ -1012,7 +1012,7 @@ return {
                 type = "Spell",
                 cond = function(self, spell, target)
                     return RGMercConfig.Constants.RGMelee:contains(target.Class.ShortName()) and not RGMercUtils.TargetHasBuffByName(spell.RankName()) and
-                        RGMercConfig.GetSetting('DoAvatar')
+                        RGMercUtils.GetSetting('DoAvatar')
                 end,
             },
             {
@@ -1272,6 +1272,20 @@ return {
             spells = {
                 { name = "Colddot", },
             },
+        },
+    },
+    ['PullAbilities']     = {
+        {
+            id = 'Slow',
+            Type = "Spell",
+            DisplayName = function() return RGMercUtils.GetResolvedActionMapItem('SlowSpell')() or "" end,
+            AbilityName = function() return RGMercUtils.GetResolvedActionMapItem('SlowSpell')() or "" end,
+            AbilityRange = 150,
+            cond = function(self)
+                local resolvedSpell = RGMercUtils.GetResolvedActionMapItem('SlowSpell')
+                if not resolvedSpell then return false end
+                return mq.TLO.Me.Gem(resolvedSpell.RankName.Name() or "")() ~= nil
+            end,
         },
     },
     ['DefaultConfig']     = {
