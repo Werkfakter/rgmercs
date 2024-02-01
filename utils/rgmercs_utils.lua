@@ -1074,7 +1074,6 @@ function Utils.ExecEntry(caller, entry, targetId, resolvedActionMap, bAllowMem)
     if entry.type:lower() == "disc" then
         local discSpell = resolvedActionMap[entry.name]
         if not discSpell then
-            RGMercsLogger.log_debug("Dont have a Disc for \ao =>> \ag %s \ao <<=", entry.name)
             ret = false
         else
             RGMercsLogger.log_debug("Using Disc \ao =>> \ag %s [%s] \ao <<=", entry.name,
@@ -1125,6 +1124,7 @@ function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId)
     local condTarg = mq.TLO.Spawn(targetId)
     local pass = false
     local active = false
+
     if condArg ~= nil then
         local logInfo = string.format("check failed - Entry(\at%s\ay), condArg(\at%s\ay), condTarg(\at%s\ay)", entry.name or "NoName",
             (type(condArg) == 'userdata' and condArg() or condArg) or "None",
@@ -1217,6 +1217,12 @@ end
 ---@return boolean
 function Utils.SelfBuffPetCheck(spell)
     if not spell or not spell() then return false end
+
+    -- Skip if the spell is set as a blocked pet buff, otherwise the bot loops forever
+    if mq.TLO.Me.BlockedPetBuff(spell.ID()) then
+        return false
+    end
+
     return (not mq.TLO.Me.PetBuff(spell.RankName.Name())()) and spell.StacksPet() and mq.TLO.Me.Pet.ID() > 0
 end
 
@@ -1250,7 +1256,7 @@ end
 ---@param b boolean
 ---@return string
 function Utils.BoolToColorString(b)
-    return b and "\agTRUE" or "\arFALSE"
+    return b and "\agTRUE\ax" or "\arFALSE\ax"
 end
 
 ---Returns a setting from either the global or a module setting table.
@@ -1346,9 +1352,9 @@ function Utils.TargetHasBuff(spell, buffTarget)
     end
 
     if not spell or not spell() then return false end
-    if not buffTarget or not buffTarget() then return false end
+    if not target or not target() then return false end
 
-    return (buffTarget.FindBuff("id " .. tostring(spell.ID())).ID() or 0) > 0
+    return (target.FindBuff("id " .. tostring(spell.ID())).ID() or 0) > 0
 end
 
 ---@param buffName string
@@ -1417,10 +1423,9 @@ function Utils.GetTargetID(target)
     return (target and target.ID() or (mq.TLO.Target.ID() or 0))
 end
 
----@param target MQTarget|nil
 ---@return number
-function Utils.GetTargetAggroPct(target)
-    return (target and target.PctAggro() or (mq.TLO.Target.PctAggro() or 0))
+function Utils.GetTargetAggroPct()
+    return (mq.TLO.Target.PctAggro() or 0)
 end
 
 ---@param target MQTarget|nil
@@ -1429,17 +1434,12 @@ function Utils.GetTargetAggressive(target)
     return (target and target.Aggressive() or (mq.TLO.Target.Aggressive() or false))
 end
 
----@param target MQTarget|nil
 ---@return number
-function Utils.GetTargetSlowedPct(target)
+function Utils.GetTargetSlowedPct()
     -- no valid target
-    if (not target or not target()) and not mq.TLO.Target then return 0 end
-    -- passed in target valid but not slowed
-    if target and target() and not target.Slowed() then return 0 end
-    -- implied target valid but not slowed
     if mq.TLO.Target and not mq.TLO.Target.Slowed() then return 0 end
 
-    return ((target and target() and target.Slowed.SlowPct()) or (mq.TLO.Target.Slowed.SlowPct() or 0))
+    return (mq.TLO.Target.Slowed.SlowPct() or 0)
 end
 
 ---@return integer
@@ -1631,7 +1631,9 @@ function Utils.AutoMed()
 
     --If we're moving/following/navigating/sticking, don't med.
     if me.Casting() or me.Moving() or mq.TLO.Stick.Active() or mq.TLO.Navigation.Active() or mq.TLO.MoveTo.Moving() or mq.TLO.AdvPath.Following() then
-        RGMercsLogger.log_verbose("Sit check returning early due to movement.")
+        RGMercsLogger.log_verbose("Sit check returning early due to movement. Casting(%s) Moving(%s) Stick(%s) Nav(%s) MoveTo(%s) Following(%s)",
+            me.Casting() or "None", Utils.BoolToColorString(me.Moving()), Utils.BoolToColorString(mq.TLO.Stick.Active()),
+            Utils.BoolToColorString(mq.TLO.Navigation.Active()), Utils.BoolToColorString(mq.TLO.MoveTo.Moving()), Utils.BoolToColorString(mq.TLO.AdvPath.Following()))
         return
     end
 
@@ -1885,7 +1887,9 @@ function Utils.EngageTarget(autoTargetId, preEngageRoutine)
 
                     Utils.NavInCombat(config, autoTargetId, target.MaxRangeTo(), false)
                 else
-                    Utils.DoCmd("/nav stop log=off")
+                    if mq.TLO.Navigation.Active() then
+                        Utils.DoCmd("/nav stop log=off")
+                    end
                     if mq.TLO.Stick.Status():lower() == "off" then
                         Utils.DoStick(config, autoTargetId)
                     end
@@ -1978,7 +1982,9 @@ function Utils.IsSafeName(t, name)
     if mq.TLO.Group.Member(name)() then return true end
     if mq.TLO.Raid.Member(name)() then return true end
 
-    if mq.TLO.Spawn(string.format("%s =%s", t, name)).Guild() == mq.TLO.Me.Guild() then return true end
+    if mq.TLO.Me.Guild() ~= nil then
+        if mq.TLO.Spawn(string.format("%s =%s", t, name)).Guild() == mq.TLO.Me.Guild() then return true end
+    end
 
     return false
 end
@@ -2051,35 +2057,39 @@ function Utils.MATargetScan(radius, zradius)
         local xtSpawn = mq.TLO.Me.XTarget(i)
 
         if xtSpawn() and (xtSpawn.ID() or 0) > 0 and xtSpawn.TargetType():lower() == "auto hater" then
-            RGMercsLogger.log_verbose("Found %s [%d] Distance: %d", xtSpawn.CleanName(), xtSpawn.ID(), xtSpawn.Distance())
-            if (xtSpawn.Distance() or 999) <= radius then
-                -- Check for lack of aggro and make sure we get the ones we haven't aggro'd. We can't
-                -- get aggro data from the spawn data type.
-                if Utils.HaveExpansion("EXPANSION_LEVEL_ROF") then
-                    if xtSpawn.PctAggro() < 100 and Utils.IsTanking() then
-                        -- Coarse check to determine if a mob is _not_ mezzed. No point in waking a mezzed mob if we don't need to.
-                        if RGMercConfig.Constants.RGMezAnims:contains(xtSpawn.Animation()) then
-                            RGMercsLogger.log_verbose("Have not fully aggro'd %s -- returning %s [%d]",
-                                xtSpawn.CleanName(), xtSpawn.CleanName(), xtSpawn.ID())
-                            return xtSpawn.ID() or 0
+            if not Utils.GetSetting('SafeTargeting') or not Utils.IsSpawnFightingStranger(xtSpawn, radius) then
+                RGMercsLogger.log_verbose("Found %s [%d] Distance: %d", xtSpawn.CleanName(), xtSpawn.ID(), xtSpawn.Distance())
+                if (xtSpawn.Distance() or 999) <= radius then
+                    -- Check for lack of aggro and make sure we get the ones we haven't aggro'd. We can't
+                    -- get aggro data from the spawn data type.
+                    if Utils.HaveExpansion("EXPANSION_LEVEL_ROF") then
+                        if xtSpawn.PctAggro() < 100 and Utils.IsTanking() then
+                            -- Coarse check to determine if a mob is _not_ mezzed. No point in waking a mezzed mob if we don't need to.
+                            if RGMercConfig.Constants.RGMezAnims:contains(xtSpawn.Animation()) then
+                                RGMercsLogger.log_verbose("Have not fully aggro'd %s -- returning %s [%d]",
+                                    xtSpawn.CleanName(), xtSpawn.CleanName(), xtSpawn.ID())
+                                return xtSpawn.ID() or 0
+                            end
                         end
                     end
-                end
 
-                -- If a name has take priority.
-                if Utils.IsNamed(xtSpawn) then
-                    RGMercsLogger.log_verbose("Found Named: %s -- returning %d", xtSpawn.CleanName(), xtSpawn.ID())
-                    return xtSpawn.ID() or 0
-                end
+                    -- If a name has take priority.
+                    if Utils.IsNamed(xtSpawn) then
+                        RGMercsLogger.log_verbose("Found Named: %s -- returning %d", xtSpawn.CleanName(), xtSpawn.ID())
+                        return xtSpawn.ID() or 0
+                    end
 
-                if (xtSpawn.Body.Name() or "none"):lower() == "Giant" then
-                    return xtSpawn.ID() or 0
-                end
+                    if (xtSpawn.Body.Name() or "none"):lower() == "Giant" then
+                        return xtSpawn.ID() or 0
+                    end
 
-                if (xtSpawn.PctHPs() or 100) < lowestHP then
-                    lowestHP = xtSpawn.PctHPs() or 0
-                    killId = xtSpawn.ID() or 0
+                    if (xtSpawn.PctHPs() or 100) < lowestHP then
+                        lowestHP = xtSpawn.PctHPs() or 0
+                        killId = xtSpawn.ID() or 0
+                    end
                 end
+            else
+                RGMercsLogger.log_verbose("XTarget %s [%d] Distance: %d - is fighting someone else - ignoring it.", xtSpawn.CleanName(), xtSpawn.ID(), xtSpawn.Distance())
             end
         end
     end
@@ -2232,7 +2242,8 @@ function Utils.FindTarget()
         end
     end
 
-    if RGMercConfig.Globals.AutoTargetID > 0 and mq.TLO.Target.ID() ~= RGMercConfig.Globals.AutoTargetID and Utils.OkToEngage(RGMercConfig.Globals.AutoTargetID) then
+    RGMercsLogger.log_verbose("FindTarget(): FoundTargetID(%d), myTargetId(%d)", RGMercConfig.Globals.AutoTargetID or 0, mq.TLO.Target.ID())
+    if RGMercConfig.Globals.AutoTargetID > 0 and mq.TLO.Target.ID() ~= RGMercConfig.Globals.AutoTargetID then
         Utils.SetTarget(RGMercConfig.Globals.AutoTargetID)
     end
 end
@@ -2390,7 +2401,7 @@ function Utils.OkToEngage(autoTargetId)
     local target = mq.TLO.Target
     local assistId = Utils.GetMainAssistId()
 
-    if not target() then return false end
+    if not target() or target.Dead() or target.PctHPs() == 0 then return false end
 
     local pcCheck = (target.Type() or "none"):lower() == "pc" or
         ((target.Type() or "none"):lower() == "pet" and (target.Master.Type() or "none"):lower() == "pc")
@@ -2524,6 +2535,13 @@ function Utils.DetGambitCheck()
     local gambitSpell = RGMercModules:ExecModule("Class", "GetResolvedActionMapItem", "GambitSpell")
 
     return (gambitSpell and gambitSpell() and ((me.Song(gambitSpell.RankName.Name()).ID() or 0) > 0)) and true or false
+end
+
+---@return boolean
+function Utils.FacingTarget()
+    if mq.TLO.Target.ID() == 0 then return true end
+
+    return math.abs(mq.TLO.Target.HeadingTo.DegreesCCW() - mq.TLO.Me.Heading.DegreesCCW()) <= 20
 end
 
 ---@param aaId integer

@@ -12,6 +12,7 @@ RGMercConfig:LoadSettings()
 RGMercsConsole = nil
 
 RGMercsLogger.set_log_level(RGMercConfig:GetSettings().LogLevel)
+RGMercsLogger.set_log_to_file(RGMercConfig:GetSettings().LogToFile)
 
 local RGMercUtils = require("utils.rgmercs_utils")
 
@@ -41,7 +42,7 @@ local COUNT_Y_OFFSET = 23
 local EQ_ICON_OFFSET = 500
 
 -- UI --
-local function display_item_on_cursor()
+local function displayItemOnCursor()
     if mq.TLO.Cursor() then
         local cursor_item = mq.TLO.Cursor -- this will be an MQ item, so don't forget to use () on the members!
 
@@ -115,7 +116,7 @@ end
 
 ---@return number
 local function GetMainOpacity()
-    return tonumber(RGMercUtils.GetSetting('BgOpacity')) or 1.0
+    return tonumber(RGMercConfig:GetSettings().BgOpacity) or 1.0
 end
 
 local function RGMercsGUI()
@@ -175,7 +176,7 @@ local function RGMercsGUI()
             ImGui.NewLine()
             ImGui.Separator()
 
-            local newOpacity, changed = ImGui.SliderFloat("Opacity", tonumber(RGMercUtils.GetSetting('BgOpacity')) or 1.0, 0.1, 1.0)
+            local newOpacity, changed = ImGui.SliderFloat("Opacity", tonumber(RGMercConfig:GetSettings().BgOpacity) or 1.0, 0.1, 1.0)
 
             if changed then
                 RGMercConfig:GetSettings().BgOpacity = tostring(newOpacity)
@@ -195,7 +196,7 @@ local function RGMercsGUI()
                     ImGui.Text("MA: " .. (RGMercUtils.GetMainAssistSpawn().CleanName() or "None"))
                     if mq.TLO.Target.ID() > 0 and mq.TLO.Target.Type():lower() == "pc" and RGMercConfig.Globals.MainAssist ~= mq.TLO.Target.ID() then
                         if ImGui.SmallButton("Set MA to Current Target") then
-                            RGMercConfig.Globals.AutoTargetID = mq.TLO.Target.ID()
+                            RGMercConfig.Globals.MainAssist = mq.TLO.Target.CleanName()
                         end
                     end
                     ImGui.Text("Stuck To: " .. (mq.TLO.Stick.Active() and (mq.TLO.Stick.StickTargetName() or "None") or "None"))
@@ -244,8 +245,15 @@ local function RGMercsGUI()
 
             if RGMercsConsole then
                 local changed
-                RGMercConfig:GetSettings().LogLevel, changed = ImGui.Combo("Debug Level", RGMercUtils.GetSetting('LogLevel'), RGMercConfig.Constants.LogLevels,
+                RGMercConfig:GetSettings().LogLevel, changed = ImGui.Combo("Debug Level", RGMercConfig:GetSettings().LogLevel, RGMercConfig.Constants.LogLevels,
                     #RGMercConfig.Constants.LogLevels)
+
+                if changed then
+                    RGMercConfig:SaveSettings(false)
+                end
+
+                ImGui.SameLine()
+                RGMercConfig:GetSettings().LogToFile, changed = RGMercUtils.RenderOptionToggle("##log_to_file", "Log to File", RGMercConfig:GetSettings().LogToFile)
 
                 if changed then
                     RGMercConfig:SaveSettings(false)
@@ -266,7 +274,7 @@ local function RGMercsGUI()
                 end
             end
 
-            display_item_on_cursor()
+            displayItemOnCursor()
         end
 
         ImGui.PopID()
@@ -376,6 +384,11 @@ local function Main()
 
     notifyZoning = true
 
+    if mq.TLO.Me.NumGems() ~= RGMercUtils.UseGem then
+        -- sometimes this can get out of sync.
+        RGMercUtils.UseGem = mq.TLO.Me.NumGems()
+    end
+
     if RGMercConfig.Globals.PauseMain then
         mq.delay(1000)
         mq.doevents()
@@ -387,8 +400,9 @@ local function Main()
 
     if RGMercUtils.GetXTHaterCount() > 0 then
         curState = "Combat"
-        if os.clock() - RGMercConfig.Globals.LastFaceTime > 6 then
-            RGMercConfig.Globals.LastFaceTime = os.clock()
+        --if os.clock() - RGMercConfig.Globals.LastFaceTime > 6 then
+        if not RGMercUtils.FacingTarget() then
+            --RGMercConfig.Globals.LastFaceTime = os.clock()
             RGMercUtils.DoCmd("/squelch /face")
         end
     else
@@ -414,7 +428,6 @@ local function Main()
     end
 
     if RGMercUtils.OkToEngage(RGMercConfig.Globals.AutoTargetID) then
-        RGMercUtils.SetTarget(RGMercConfig.Globals.AutoTargetID)
         RGMercUtils.EngageTarget(RGMercConfig.Globals.AutoTargetID)
     else
         if RGMercUtils.GetXTHaterCount() > 0 and RGMercUtils.GetTargetID() > 0 then

@@ -7,6 +7,9 @@ return {
     ['Modes']             = {
         'DPS',
     },
+    ['ModeChecks']        = {
+        IsHealing = function() return true end,
+    },
     ['ItemSets']          = {
         ['Epic'] = {
             "Savage Lord's Totem",             -- Epic    -- Epic 1.5
@@ -230,7 +233,7 @@ return {
             "Spirit of Panthea",    -- Level 118
             "Spirit of Shae",       -- Level 123
         },
-        [','] = {
+        ['PetGroupEndRegenProc'] = {
             --Pet Group End Regen Proc*
             "Fatiguing Bite",
             "Exhausting Bite",
@@ -833,7 +836,7 @@ return {
                 cond = function(self, spell, target)
                     return RGMercUtils.GetSetting('DoSlow') and not RGMercUtils.CanUseAA("Sha's Reprisal") and not RGMercUtils.TargetHasBuffByName(spell.RankName()) and
                         spell.StacksTarget() and
-                        spell.SlowPct() > (RGMercUtils.GetTargetSlowedPct(target))
+                        spell.SlowPct() > (RGMercUtils.GetTargetSlowedPct())
                 end,
             },
             {
@@ -841,7 +844,7 @@ return {
                 type = "AA",
                 cond = function(self, aaName, target)
                     return RGMercUtils.GetSetting('DoSlow') and not RGMercUtils.TargetHasBuffByName(aaName) and
-                        (mq.TLO.Me.AltAbility(aaName).Spell.SlowPct() or 0) > (RGMercUtils.GetTargetSlowedPct(target))
+                        (mq.TLO.Me.AltAbility(aaName).Spell.SlowPct() or 0) > (RGMercUtils.GetTargetSlowedPct())
                 end,
             },
         },
@@ -971,14 +974,21 @@ return {
                 name = "Colddot",
                 type = "Spell",
                 cond = function(self, spell, target)
-                    return RGMercUtils.ManaCheck() and RGMercUtils.DotSpellCheck(RGMercUtils.GetSetting('HPStopDOT'), spell)
+                    return RGMercUtils.ManaCheck() and RGMercUtils.GetSetting('DoDot') and RGMercUtils.DotSpellCheck(RGMercUtils.GetSetting('HPStopDOT'), spell)
                 end,
             },
             {
                 name = "Blooddot",
                 type = "Spell",
                 cond = function(self, spell, target)
-                    return RGMercUtils.ManaCheck() and RGMercUtils.DotSpellCheck(RGMercUtils.GetSetting('HPStopDOT'), spell)
+                    return RGMercUtils.ManaCheck() and RGMercUtils.GetSetting('DoDot') and RGMercUtils.DotSpellCheck(RGMercUtils.GetSetting('HPStopDOT'), spell)
+                end,
+            },
+            {
+                name = "EndemicDot",
+                type = "Spell",
+                cond = function(self, spell, target)
+                    return RGMercUtils.ManaCheck() and RGMercUtils.GetSetting('DoDot') and RGMercUtils.DotSpellCheck(RGMercUtils.GetSetting('HPStopDOT'), spell)
                 end,
             },
         },
@@ -1001,7 +1011,8 @@ return {
                 name = "AvatarSpell",
                 type = "Spell",
                 cond = function(self, spell, target)
-                    return RGMercConfig.Constants.RGMelee:contains(target.Class.ShortName()) and not RGMercUtils.TargetHasBuffByName(spell.RankName())
+                    return RGMercConfig.Constants.RGMelee:contains(target.Class.ShortName()) and not RGMercUtils.TargetHasBuffByName(spell.RankName()) and
+                        RGMercConfig.GetSetting('DoAvatar')
                 end,
             },
             {
@@ -1103,7 +1114,7 @@ return {
                 type = "AA",
                 cond = function(self, aaName, target)
                     local slowProc = self.ResolvedActionMap['PetSlowProc']
-                    return RGMercUtils.GetSetting('DoSnare') and (slowProc() and mq.TLO.Me.PetBuff(slowProc.RankName()) == nil) and
+                    return RGMercUtils.GetSetting('DoSnare') and (slowProc and slowProc() and mq.TLO.Me.PetBuff(slowProc.RankName()) == nil) and
                         mq.TLO.Me.PetBuff(mq.TLO.Me.AltAbility(aaName).Spell.RankName.Name())() == nil
                 end,
             },
@@ -1111,7 +1122,7 @@ return {
                 name = "AvatarSpell",
                 type = "Spell",
                 cond = function(self, spell)
-                    return RGMercUtils.SelfBuffPetCheck(spell)
+                    return RGMercUtils.SelfBuffPetCheck(spell) and RGMercUtils.GetSetting('DoAvatar')
                 end,
             },
             {
@@ -1277,6 +1288,7 @@ return {
         ['DoAoe']        = { DisplayName = "Do AoE", Category = "Abilities", Tooltip = "Enable using AoE Abilities", Default = true, },
         ['DoDot']        = { DisplayName = "Cast DOTs", Category = "Spells and Abilities", Tooltip = "Enable casting Damage Over Time spells.", Default = true, },
         ['HPStopDOT']    = { DisplayName = "HP Stop DOTs", Category = "Spells and Abilities", Tooltip = "Stop casting DOTs when the mob hits [x] HP %.", Default = 30, Min = 1, Max = 100, },
+        ['DoAvatar']     = { DisplayName = "Do Avatar", Category = "Buffs", Tooltip = "Buff Group/Pet with Avatar", Default = true, },
     },
 
 }

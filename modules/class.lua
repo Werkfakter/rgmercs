@@ -187,16 +187,18 @@ function Module:Render()
 
         ImGui.Separator()
 
-        if #self.SpellLoadOut > 0 then
-            if ImGui.CollapsingHeader("Spell Loadout") then
-                ImGui.Indent()
-                RGMercUtils.RenderLoadoutTable(self.SpellLoadOut)
-                ImGui.Unindent()
+        if ImGui.CollapsingHeader("Spell Loadout") then
+            ImGui.Indent()
+            if ImGui.SmallButton("Reload Spell Loadout") then
+                self.TempSettings.NewCombatMode = true
             end
 
+            if #self.SpellLoadOut > 0 then
+                RGMercUtils.RenderLoadoutTable(self.SpellLoadOut)
+            end
+            ImGui.Unindent()
             ImGui.Separator()
         end
-
         if not self.TempSettings.ReloadingLoadouts then
             if ImGui.CollapsingHeader("Rotations") then
                 ImGui.Indent()
@@ -522,6 +524,7 @@ function Module:HealById(id)
 end
 
 function Module:RunHealRotation()
+    RGMercsLogger.log_verbose("\ao[Heals] Checking for injured friends...")
     self:HealById(self:FindWorstHurtGroupMember(RGMercUtils.GetSetting('MaxHealPoint')))
 
     if RGMercUtils.GetSetting('AssistOutside') then
@@ -530,6 +533,10 @@ function Module:RunHealRotation()
 
     if mq.TLO.Me.PctHPs() < RGMercUtils.GetSetting('MaxHealPoint') then
         self:HealById(mq.TLO.Me.ID())
+    end
+
+    if RGMercUtils.GetSetting('DoPetHeals') and mq.TLO.Me.Pet.ID() > 0 and mq.TLO.Me.Pet.PctHPs() < RGMercUtils.GetSetting('PetHealPoint') then
+        self:HealById(mq.TLO.Me.Pet.ID())
     end
 end
 
@@ -655,6 +662,8 @@ function Module:GiveTime(combat_state)
 end
 
 function Module:OnDeath()
+    mq.cmd("/nav stop")
+    mq.cmd("/stick off")
 end
 
 function Module:OnZone()
