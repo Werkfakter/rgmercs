@@ -855,7 +855,7 @@ return {
                 end,
             },
             {
-                name = "IceRainNuke",
+                name = "SnareSpell",
                 type = "Spell",
                 cond = function(self, spell)
                     return RGMercUtils.ManaCheck() and RGMercUtils.GetTargetDistance() > 30 and self.settings.DoSnare
