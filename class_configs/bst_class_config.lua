@@ -2,7 +2,7 @@ local mq          = require('mq')
 local RGMercUtils = require("utils.rgmercs_utils")
 
 return {
-    _version              = "0.1a",
+    _version              = "1.0 Beta",
     _author               = "Derple",
     ['Modes']             = {
         'DPS',
@@ -1226,6 +1226,7 @@ return {
             spells = {
                 { name = "GroupAtkBuff", },
                 { name = "SingleAtkBuff", },
+                { name = "RunSpeedBuff", },
             },
         },
         {
