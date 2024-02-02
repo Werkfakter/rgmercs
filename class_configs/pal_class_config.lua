@@ -636,8 +636,21 @@ return {
             steps = 1,
             cond = function(self, target) return (target.PctHPs() or 999) < RGMercUtils.GetSetting('MainHealPoint') end,
         },
+        {
+            name = 'LightHealPoint',
+            state = 1,
+            steps = 1,
+            cond = function(self, target) return (target.PctHPs() or 999) < RGMercUtils.GetSetting('LightHealPoint') end,
+        },
     },
     ['HealRotations']     = {
+        ["LightHealPoint"] = {
+            {
+                name = "LightHeal",
+                type = "Spell",
+                cond = function(self, _) return true end,
+            },
+        },
         ["MainHealPoint"] = {
             {
                 name = "WaveHeal",
@@ -676,6 +689,14 @@ return {
                 cond = function(self, aaName)
                     return RGMercUtils.PCAAReady(aaName) and RGMercUtils.GetTargetPctHPs() < RGMercUtils.GetSetting('LayHandsPct')
                 end,
+                ['HealRotationOrder'] = {
+                    {
+                        name = 'LowLevelHealPoint',
+                        state = 1,
+                        steps = 1,
+                        cond = function(self, target) return mq.TLO.Me.Level() < 85 and (target.PctHPs() or 999) < RGMercUtils.GetSetting('LightHealPoint') end,
+                    },
+                },
             },
         },
     },
@@ -909,7 +930,7 @@ return {
                 name = "Force of Disruption",
                 type = "AA",
                 cond = function(self, aaName)
-                    return mq.TLO.Me.AltAbility(aaName).Rank() > 7 and not RGMercUtils.BuffActiveByName("Knight's Yaulp") and
+                    return (mq.TLO.Me.AltAbility(aaName).Rank() or 0) > 7 and not RGMercUtils.BuffActiveByName("Knight's Yaulp") and
                         RGMercUtils.GetTargetDistance() < 30 and RGMercUtils.AAReady(aaName)
                 end,
             },
@@ -1220,6 +1241,7 @@ return {
                 { name = "CrushTimer6", },
                 { name = "StunTimer5", },
                 { name = "Challengetaunt", },
+                { name = "LightHeal", },
             },
         },
         {
@@ -1325,6 +1347,32 @@ return {
             cond = function(self, gem) return mq.TLO.Me.NumGems() >= gem end,
             spells = {
             },
+        },
+    },
+    ['PullAbilities']     = {
+        {
+            id = 'StunTimer4',
+            Type = "Spell",
+            DisplayName = function() return RGMercUtils.GetResolvedActionMapItem('StunTimer4')() or "" end,
+            AbilityName = function() return RGMercUtils.GetResolvedActionMapItem('StunTimer4')() or "" end,
+            AbilityRange = 150,
+            cond = function(self)
+                local resolvedSpell = RGMercUtils.GetResolvedActionMapItem('StunTimer4')
+                if not resolvedSpell then return false end
+                return mq.TLO.Me.Gem(resolvedSpell.RankName.Name() or "")() ~= nil
+            end,
+        },
+        {
+            id = 'StunTimer5',
+            Type = "Spell",
+            DisplayName = function() return RGMercUtils.GetResolvedActionMapItem('StunTimer5')() or "" end,
+            AbilityName = function() return RGMercUtils.GetResolvedActionMapItem('StunTimer5')() or "" end,
+            AbilityRange = 150,
+            cond = function(self)
+                local resolvedSpell = RGMercUtils.GetResolvedActionMapItem('StunTimer5')
+                if not resolvedSpell then return false end
+                return mq.TLO.Me.Gem(resolvedSpell.RankName.Name() or "")() ~= nil
+            end,
         },
     },
     ['DefaultConfig']     = {

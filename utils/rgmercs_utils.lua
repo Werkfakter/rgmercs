@@ -45,6 +45,14 @@ function Utils.BroadcastUpdate(module, event, data)
     })
 end
 
+---@param t table
+---@return number
+function Utils.GetTableSize(t)
+    local i = 0
+    for _, _ in pairs(t) do i = i + 1 end
+    return i
+end
+
 ---@param time integer # in seconds
 ---@return string
 function Utils.FormatTime(time)
@@ -705,6 +713,7 @@ end
 ---@param targetName string
 ---@param uiCheck boolean # UI Cannot do DanNet checks.
 function Utils.CheckPCNeedsBuff(spell, targetId, targetName, uiCheck)
+    if not spell or not spell() then return false end
     if targetId == mq.TLO.Me.ID() then
         return mq.TLO.Me.FindBuff("id " .. tostring(spell.ID()))() == nil
     elseif mq.TLO.DanNet(targetName)() == nil then
@@ -1946,7 +1955,7 @@ end
 ---@param name string
 ---@return boolean
 function Utils.HaveExpansion(name)
-    return mq.TLO.Me.HaveExpansion(RGMercConfig.ExpansionNameToID[name])
+    return mq.TLO.Me.HaveExpansion(RGMercConfig.Constants.ExpansionNameToID[name])
 end
 
 ---@param class string
@@ -3151,8 +3160,8 @@ function Utils.RenderSettingsTable(settings, settingNames, defaults, category)
         ImGui.PopStyleColor()
         ImGui.TableHeadersRow()
 
-        for _, k in ipairs(settingNames, redSettings) do
-            if Utils.ShowAdvancedConfig or (defaults[k].ConfigType == nil or defaults[k].ConfigType:lower() == "normal") then
+        for _, k in ipairs(settingNames) do
+            if Utils.GetSetting('ShowAdvancedOpts') or (defaults[k].ConfigType == nil or defaults[k].ConfigType:lower() == "normal") then
                 if defaults[k].Category == category then
                     if defaults[k].Type == "Combo" then
                         -- build a combo box.
@@ -3244,8 +3253,11 @@ function Utils.RenderSettings(settings, defaults, categories, hideControls)
     end
 
     if not hideControls then
-        Utils.ShowAdvancedConfig, _ = Utils.RenderOptionToggle("show_adv_tog", "Show Advanced Options",
-            Utils.ShowAdvancedConfig)
+        local changed = false
+        RGMercConfig:GetSettings().ShowAdvancedOpts, changed = Utils.RenderOptionToggle("show_adv_tog", "Show Advanced Options", RGMercConfig:GetSettings().ShowAdvancedOpts)
+        if changed then
+            RGMercConfig:SaveSettings(true)
+        end
 
         Utils.ConfigFilter = ImGui.InputText("Search Configs", Utils.ConfigFilter)
     end
@@ -3279,7 +3291,7 @@ function Utils.RenderSettings(settings, defaults, categories, hideControls)
             local shouldShow = false
             for _, k in ipairs(settingNames) do
                 if defaults[k].Category == c then
-                    if Utils.ShowAdvancedConfig or (defaults[k].ConfigType == nil or defaults[k].ConfigType:lower() == "normal") then
+                    if Utils.GetSetting('ShowAdvancedOpts') or (defaults[k].ConfigType == nil or defaults[k].ConfigType:lower() == "normal") then
                         shouldShow = true
                         break
                     end

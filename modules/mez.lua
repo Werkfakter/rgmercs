@@ -18,17 +18,17 @@ Module.TempSettings.MezTracker     = {}
 Module.DefaultConfig               = {
     -- [ MEZ ] --
     ['MezAECount']      = { DisplayName = "Mez AE Count", Category = "Mez", Tooltip = "Mez if you have more than [X] on xtarget", Default = 3, Min = 1, Max = 20, },
-    ['AutoLevelRange']  = { DisplayName = "Auto Level Range", Category = "Mez", Default = true, Tooltip = "Set to enable automatic mez level detection based on spells.", },
     ['MezOn']           = { DisplayName = "Mez On", Category = "Mez", Default = true, Tooltip = "Set to use mez spells.", },
     ['UseSingleTgtMez'] = { DisplayName = "Use Single Tgt Mez", Category = "Mez", Default = true, Tooltip = "Set to enable use of single target mez spells/songs. Default: 1.", },
     ['MezAnnounce']     = { DisplayName = "Mez Announce", Category = "Mez", Default = true, Tooltip = "Set to announce mez casts.", },
     ['MezStartCount']   = { DisplayName = "Mez Start Count", Category = "Mez", Default = 2, Min = 1, Max = 20, Tooltip = "Sets # of mobs needed to start using Mez spells. ( Default 2 )", },
     ['MaxMezCount']     = { DisplayName = "Max Mez Count", Category = "Mez", Default = 13, Min = 1, Max = 20, Tooltip = "Maximum # of mobs to CC ( Default is 13 )", },
-    ['MezRadius']       = { DisplayName = "Mez Radius", Category = "Mez", Default = 100, Min = 1, Max = 200, Tooltip = "Radius for mobs to be in to start Mezing, An area twice this size is monitored for aggro mobs", },
-    ['MezZRadius']      = { DisplayName = "Mez ZRadius", Category = "Mez", Default = 15, Min = 1, Max = 200, Tooltip = "Height radius (z-value) for mobs to be in to start mezzing. An area twice this size is monitored for aggro mobs. If you're enchanter is not mezzing on hills -- increase this value.", },
-    ['MezMinLevel']     = { DisplayName = "Mez Min Level", Category = "Mez", Default = 0, Min = 1, Max = 200, Tooltip = "Minimum Level a mob must be to Mez - Below this lvl are ignored. 0 means no mobs ignored.", },
-    ['MezMaxLevel']     = { DisplayName = "Mez Max Level", Category = "Mez", Default = 0, Min = 1, Max = 200, Tooltip = "Maximum Level a mob must be to Mez - Above this lvl are ignored. 0 means no mobs ignored.", },
-    ['MezStopHPs']      = { DisplayName = "Mez Stop HPs", Category = "Mez", Default = 80, Min = 1, Max = 100, Tooltip = "Mob HP% to stop trying to mez", },
+    ['MezRadius']       = { DisplayName = "Mez Radius", Category = "Mez Range", Default = 100, Min = 1, Max = 200, Tooltip = "Radius for mobs to be in to start Mezing, An area twice this size is monitored for aggro mobs", },
+    ['MezZRadius']      = { DisplayName = "Mez ZRadius", Category = "Mez Range", Default = 15, Min = 1, Max = 200, Tooltip = "Height radius (z-value) for mobs to be in to start mezzing. An area twice this size is monitored for aggro mobs. If you're enchanter is not mezzing on hills -- increase this value.", },
+    ['AutoLevelRange']  = { DisplayName = "Auto Level Range", Category = "Mez Target", Default = true, Tooltip = "Set to enable automatic mez level detection based on spells.", },
+    ['MezMinLevel']     = { DisplayName = "Mez Min Level", Category = "Mez Target", Default = 0, Min = 1, Max = 200, Tooltip = "Minimum Level a mob must be to Mez - Below this lvl are ignored. 0 means no mobs ignored. NOTE: AutoLevelRange must be OFF!", ConfigType = "Advanced", },
+    ['MezMaxLevel']     = { DisplayName = "Mez Max Level", Category = "Mez Target", Default = 0, Min = 1, Max = 200, Tooltip = "Maximum Level a mob must be to Mez - Above this lvl are ignored. 0 means no mobs ignored. NOTE: AutoLevelRange must be OFF!", ConfigType = "Advanced", },
+    ['MezStopHPs']      = { DisplayName = "Mez Stop HPs", Category = "Mez Target", Default = 80, Min = 1, Max = 100, Tooltip = "Mob HP% to stop trying to mez", },
     ['UseAEAAMez']      = { DisplayName = "Use AE AAMez", Category = "Mez", Default = false, Tooltip = "Toggle 0/1 to use Area Effect AA Mez (Default: 0).", },
 }
 
@@ -110,7 +110,7 @@ function Module:Render()
         ImGui.Separator()
         -- CCEd targets
         if ImGui.CollapsingHeader("CC Target List") then
-            if ImGui.BeginTable("MezzedList", 4, bit32.bor(ImGuiTableFlags.None, ImGuiTableFlags.Borders)) then
+            if ImGui.BeginTable("MezzedList", 4, bit32.bor(ImGuiTableFlags.Resizable, ImGuiTableFlags.Borders)) then
                 ImGui.PushStyleColor(ImGuiCol.Text, 1.0, 0.0, 1.0, 1)
                 ImGui.TableSetupColumn('Id', (ImGuiTableColumnFlags.WidthFixed), 70.0)
                 ImGui.TableSetupColumn('Duration', (ImGuiTableColumnFlags.WidthFixed), 150.0)
@@ -129,7 +129,7 @@ function Module:Render()
                     else
                         ImGui.PushStyleColor(ImGuiCol.Text, 0.8, 0.02, 0.02, 1)
                     end
-                    ImGui.Text(string.format("%s", RGMercUtils.FormatTime(data.duration / 1000)))
+                    ImGui.Text(string.format("%s", RGMercUtils.FormatTime(math.max(0, data.duration / 1000))))
                     ImGui.PopStyleColor()
                     ImGui.TableNextColumn()
                     ImGui.Text(string.format("%s", data.name))
@@ -394,8 +394,17 @@ function Module:UpdateMezList()
     local searchTypes = { "npc", "npcpet", }
 
     for _, t in ipairs(searchTypes) do
+        local minLevel = self.settings.MezMinLevel
+        local maxLevel = self.settings.MezMaxLevel
+
+        local mezSpell = RGMercModules:ExecModule("Class", "GetResolvedActionMapItem", "MezSpell")
+
+        if self.settings.AutoLevelRange and mezSpell and mezSpell() then
+            minLevel = 0
+            maxLevel = mezSpell.MaxLevel()
+        end
         local searchString = string.format("%s radius %d zradius %d range %d %d targetable playerstate 4", t,
-            self.settings.MezRadius * 2, self.settings.MezZRadius * 2, self.settings.MezMinLevel, self.settings.MezMaxLevel)
+            self.settings.MezRadius * 2, self.settings.MezZRadius * 2, minLevel, maxLevel)
 
         local mobCount = mq.TLO.SpawnCount(searchString)()
         RGMercsLogger.log_debug("\ayUpdateMezList: Search String: '\at%s\ay' -- Count :: \am%d", searchString, mobCount)
@@ -420,22 +429,24 @@ end
 function Module:ProcessMezList()
     -- Assume by default we never need to block for mez. We'll set this if-and-only-if
     -- we need to mez but our ability is on cooldown.
-
+    RGMercsLogger.log_debug("\ayProcessMezList() :: Loop")
     local mezSpell = RGMercModules:ExecModule("Class", "GetResolvedActionMapItem", "MezSpell")
-    local aeMezSpell = RGMercModules:ExecModule("Class", "GetResolvedActionMapItem", "MezAESpell")
 
-    if #self.TempSettings.MezTracker <= 1 then
+    if RGMercUtils.GetTableSize(self.TempSettings.MezTracker) <= 1 then
         -- If we have only one spawn we're tracking, we don't need to be mezzing
+        RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Only 1 Spawn - let it break")
         return
     end
 
     if not self.settings.UseSingleTgtMez then
+        RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Single Target Mezzing is off...")
         return
     end
 
     local removeList = {}
     for id, data in pairs(self.TempSettings.MezTracker) do
         local spawn = mq.TLO.Spawn(id)
+        RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Checking...", id)
 
         if not spawn or not spawn() or spawn.Dead() or spawn.Type():lower() == "corpse" then
             table.insert(removeList, id)
@@ -450,15 +461,16 @@ function Module:ProcessMezList()
                 -- Only worry about mezzing if their mez timer less than the time it will take to cast
                 -- the mez spell. MyCastTime is in ms, timer is in deciseconds.
                 -- We already fudge the mez timer when we set it.
-                local spell = mq.TLO.Spell(data.mez_spell)
+                local spell = mezSpell
                 if data.duration > (spell.MyCastTime() / 100) or spawn.Distance() > self.settings.MezRadius or not spawn.LineOfSight() then
                     RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Timer(%s > %s) Distance(%d) LOS(%s)", id, RGMercUtils.FormatTime(data.duration / 1000),
                         RGMercUtils.FormatTime(spell.MyCastTime() / 100), spawn.Distance(), RGMercUtils.BoolToColorString(spawn.LineOfSight()))
                 else
                     if id == RGMercConfig.Globals.AutoTargetID then
-                        RGMercsLogger.log_debug("\ayProcessMezList(%d) ::Mob is MA's target skipping", id)
+                        RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Mob is MA's target skipping", id)
                         table.insert(removeList, id)
                     else
+                        RGMercsLogger.log_debug("\ayProcessMezList(%d) :: Mob needs mezed.", id)
                         if mq.TLO.Me.Combat() or mq.TLO.Me.Casting.ID() then
                             RGMercsLogger.log_debug(" \awNOTICE:\ax Stopping Melee/Singing -- must retarget to start mez.")
                             RGMercUtils.DoCmd("/attack off")
@@ -508,11 +520,11 @@ function Module:DoMez()
 
     self:UpdateTimings()
 
-    if RGMercUtils.GetXTHaterCount() > self.settings.MezStartCount then
+    if RGMercUtils.GetXTHaterCount() >= self.settings.MezStartCount then
         self:UpdateMezList()
     end
 
-    if (RGMercUtils.MyClassIs("brd") or mq.TLO.Me.SpellReady(mezSpell)()) and #self.TempSettings.MezTracker >= 1 then
+    if (RGMercUtils.MyClassIs("brd") or mq.TLO.Me.SpellReady(mezSpell)()) and RGMercUtils.GetTableSize(self.TempSettings.MezTracker) >= 1 then
         self:ProcessMezList()
     end
 end

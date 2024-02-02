@@ -320,7 +320,7 @@ local function RGInit(...)
         mainAssist = mq.TLO.Group.MainAssist() or ""
     end
 
-    for k, v in ipairs(RGMercConfig.ExpansionIDToName) do
+    for k, v in ipairs(RGMercConfig.Constants.ExpansionIDToName) do
         RGMercsLogger.log_debug("\ayExpansion \at%s\ao[\am%d\ao]: %s", v, k, RGMercUtils.HaveExpansion(v) and "\agEnabled" or "\arDisabled")
     end
 
@@ -434,7 +434,7 @@ local function Main()
     if RGMercUtils.OkToEngage(RGMercConfig.Globals.AutoTargetID) then
         RGMercUtils.EngageTarget(RGMercConfig.Globals.AutoTargetID)
     else
-        if RGMercUtils.GetXTHaterCount() > 0 and RGMercUtils.GetTargetID() > 0 then
+        if RGMercUtils.GetXTHaterCount() > 0 and RGMercUtils.GetTargetID() > 0 and not RGMercUtils.IsMezzing() then
             RGMercsLogger.log_debug("\ayClearing Target because we are not OkToEngage() and we are in combat!")
             RGMercUtils.ClearTarget()
         end
