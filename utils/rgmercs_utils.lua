@@ -211,10 +211,10 @@ function Utils.AAReady(aaName)
     return Utils.CanUseAA(aaName) and mq.TLO.Me.AltAbilityReady(aaName)()
 end
 
----@param aaName string
+---@param abilityName string
 ---@return boolean
-function Utils.AbilityReady(aaName)
-    return mq.TLO.Me.AbilityReady(aaName)()
+function Utils.AbilityReady(abilityName)
+    return mq.TLO.Me.AbilityReady(abilityName)()
 end
 
 ---@param aaName string
@@ -959,7 +959,7 @@ function Utils.UseSpell(spellName, targetId, bAllowMem)
         local spellRequiredMem = false
         if not me.Gem(spellName)() then
             RGMercsLogger.log_debug("\ay%s is not memorized - meming!", spellName)
-            Utils.MemorizeSpell(Utils.UseGem, spellName, 5000)
+            Utils.MemorizeSpell(Utils.UseGem, spellName, 15000)
             spellRequiredMem = true
         end
 
@@ -995,7 +995,6 @@ end
 ---@param bAllowMem boolean         # allow memorization of spells if needed.
 ---@return boolean
 function Utils.ExecEntry(caller, entry, targetId, resolvedActionMap, bAllowMem)
-    local me = mq.TLO.Me
     local ret = false
 
     if entry.type == nil then return false end -- bad data.
@@ -1093,7 +1092,6 @@ function Utils.ExecEntry(caller, entry, targetId, resolvedActionMap, bAllowMem)
     end
 
     if entry.post_activate then
-        RGMercsLogger.log_debug("Running Post-Activate for %s", entry.name)
         entry.post_activate(caller, Utils.GetEntryConditionArg(resolvedActionMap, entry), ret)
     end
 
@@ -1146,7 +1144,7 @@ function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId)
         end
     end
 
-    RGMercsLogger.log_verbose("\ay   :: Testing Codition for entry(%s) type(%s) cond(s, %s, %s) ==> \ao%s",
+    RGMercsLogger.log_verbose("\ay   :: Testing Condition for entry(%s) type(%s) cond(s, %s, %s) ==> \ao%s",
         entry.name, entry.type, condArg or "None",
         condTarg.CleanName() or "None", Utils.BoolToColorString(pass))
 
@@ -1207,7 +1205,7 @@ function Utils.RunRotation(caller, rotationTable, targetId, resolvedActionMap, s
 
     if Utils.GetXTHaterCount() == 0 and oldSpellInSlot() and mq.TLO.Me.Gem(Utils.UseGem)() ~= oldSpellInSlot.Name() then
         RGMercsLogger.log_debug("\ayRestoring %s in slot %d", oldSpellInSlot, Utils.UseGem)
-        Utils.MemorizeSpell(Utils.UseGem, oldSpellInSlot.Name(), 10000)
+        Utils.MemorizeSpell(Utils.UseGem, oldSpellInSlot.Name(), 15000)
     end
 
     -- Move to the next step
@@ -1428,6 +1426,12 @@ function Utils.GetTargetName(target)
 end
 
 ---@param target MQTarget|nil
+---@return string
+function Utils.GetTargetCleanName(target)
+    return (target and target.Name() or (mq.TLO.Target.CleanName() or ""))
+end
+
+---@param target MQTarget|nil
 ---@return number
 function Utils.GetTargetID(target)
     return (target and target.ID() or (mq.TLO.Target.ID() or 0))
@@ -1540,6 +1544,61 @@ function Utils.DoCmd(cmd, ...)
     if ... ~= nil then formatted = string.format(cmd, ...) end
     RGMercsLogger.log_debug("\atRGMercs \awsent MQ \amCommand\aw: >> \ag%s\aw <<", formatted)
     mq.cmdf(formatted)
+end
+
+---@param target MQTarget
+---@param radius number
+---@param bDontStick boolean
+---@return boolean
+function Utils.NavAroundCircle(target, radius, bDontStick)
+    if not Utils.GetSetting('DoAutoEngage') then return false end
+    if not target or not target() and not target.Dead() then return false end
+    if not mq.TLO.Navigation.MeshLoaded() then return false end
+
+    local spawn_x = target.X()
+    local spawn_y = target.Y()
+    local spawn_z = target.Z()
+
+    local tgt_x = 0
+    local tgt_y = 0
+    -- We need to get the spawn's heading to _us_ based on our heading to the spawn
+    -- to nav a circle around it. This is done by inverting the coordinates. E.g.,
+    -- If our heading to the mob is 90 degrees CCW, their heading to us is 270 degrees CCW.
+
+    local tmp_degrees = target.HeadingTo.DegreesCCW() - 180
+    if tmp_degrees < 0 then tmp_degrees = 360 + tmp_degrees end
+
+    -- Loop until we find an x,y loc ${radius} away from the mob,
+    -- that we can navigate to, and is in LoS
+
+    for steps = 1, 36 do
+        -- EQ's x coordinates have an opposite number line. Positive x values are to the left of 0,
+        -- negative values are to the right of 0, so we need to - our radius.
+        -- EQ's unit circle starts 0 degrees at the top of the unit circle instead of the right, so
+        -- the below still finds coordinates rotated counter-clockwise 90 degrees.
+
+        tgt_x = spawn_x + (-1 * radius * math.cos(tmp_degrees))
+        tgt_y = spawn_y + (radius * math.sin(tmp_degrees))
+
+        RGMercsLogger.log_debug("\aw%d\ax tmp_degrees \aw%d\ax tgt_x \aw%0.2f\ax tgt_y \aw%02.f\ax", steps, tmp_degrees, tgt_x, tgt_y)
+        -- First check that we can navigate to our new target
+        if mq.TLO.Navigation.PathExists(string.format("locyxz %0.2f %0.2f %0.2f", tgt_y, tgt_x, spawn_z))() then
+            -- Then check if our new spots has line of sight to our target.
+            if mq.TLO.LineOfSight(string.format("%0.2f,%0.2f,%0.2f:%0.2f,%0.2f,%0.2f", tgt_y, tgt_x, spawn_z, spawn_y, spawn_x, spawn_z))() then
+                -- Make sure it's a valid loc...
+                if mq.TLO.EverQuest.ValidLoc(string.format("%0.2f %0.2f %0.2f", tgt_y, tgt_x, spawn_z))() then
+                    RGMercsLogger.log_debug("Found Valid Circling Loc: %0.2f %0.2f %0.2f", tgt_y, tgt_x, spawn_z)
+                    Utils.DoCmd("/nav locyxz %0.2f %0.2f %0.2f", tgt_y, tgt_x, spawn_z)
+                    mq.delay("2s", function() return mq.TLO.Navigation.Active() end)
+                    mq.delay("10s", function() return not mq.TLO.Navigation.Active() end)
+                    Utils.DoCmd("/squelch /face fast")
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
 end
 
 ---@param config table
@@ -1814,7 +1873,7 @@ end
 ---@param y2 number
 ---@return number
 function Utils.GetDistance(x1, y1, x2, y2)
-    return mq.TLO.Math.Distance(string.format("%d,%d:%d,%d", y1, x1, y2, x2))()
+    return mq.TLO.Math.Distance(string.format("%d,%d:%d,%d", y1 or 0, x1 or 0, y2 or 0, x2 or 0))()
 end
 
 ---@return boolean
@@ -1854,6 +1913,7 @@ function Utils.AutoCampCheck(config, tempConfig)
         local navTo = string.format("locyxz %d %d %d", tempConfig.AutoCampY, tempConfig.AutoCampX, tempConfig.AutoCampZ)
         if mq.TLO.Navigation.PathExists(navTo)() then
             Utils.DoCmd("/nav %s", navTo)
+            mq.delay("2s", function() return mq.TLO.Navigation.Active() and mq.TLO.Navigation.Velocity() > 0 end)
             while mq.TLO.Navigation.Active() and mq.TLO.Navigation.Velocity() > 0 do
                 mq.delay(10)
                 mq.doevents()
@@ -1931,10 +1991,9 @@ end
 
 ---@return boolean
 function Utils.MercEngage()
-    local target = mq.TLO.Target
-    local merc   = mq.TLO.Me.Mercenary
+    local merc = mq.TLO.Me.Mercenary
 
-    if merc() and target() and target.ID() == RGMercConfig.Globals.AutoTargetID and target.Distance() < Utils.GetSetting('AssistRange') then
+    if merc() and Utils.GetTargetID() == RGMercConfig.Globals.AutoTargetID and Utils.GetTargetDistance() < Utils.GetSetting('AssistRange') then
         if Utils.GetTargetPctHPs() <= Utils.GetSetting('AutoAssistAt') or                              -- Hit Assist HP
             merc.Class.ShortName():lower() == "clr" or                                                 -- Cleric can engage right away
             (merc.Class.ShortName():lower() == "war" and mq.TLO.Group.MainTank.ID() == merc.ID()) then -- Merc is our Main Tank
@@ -2265,6 +2324,10 @@ end
 function Utils.HandleMezAnnounce(msg)
     if Utils.GetSetting('MezAnnounce') then
         Utils.PrintGroupMessage(msg)
+        if Utils.GetSetting('MezAnnounceGroup') then
+            local cleanMsg = msg:gsub("\a.", "")
+            Utils.DoCmd("/gsay %s", cleanMsg)
+        end
     else
         RGMercsLogger.log_debug(msg)
     end
@@ -2273,15 +2336,15 @@ end
 ---@return integer
 function Utils.GetXTHaterCount()
     local xtCount = mq.TLO.Me.XTarget() or 0
-    local haterCount = (Utils.GetTargetAggroPct() > 0 or Utils.GetTargetAggressive()) and 1 or 0
+    local haterCount = 0
 
     for i = 1, xtCount do
         local xtarg = mq.TLO.Me.XTarget(i)
-        if xtarg and xtarg.Aggressive() and xtarg.ID() ~= Utils.GetTargetID() then
+        -- no aggro info under 20.
+        if xtarg and (xtarg.Aggressive() or xtarg.TargetType():lower() == "auto hater") then
             haterCount = haterCount + 1
         end
     end
-
     return haterCount
 end
 
@@ -2429,13 +2492,18 @@ function Utils.OkToEngage(autoTargetId)
         return false
     end
 
+    if Utils.GetSetting('SafeTargeting') and Utils.IsSpawnFightingStranger(target, 100) then
+        RGMercsLogger.log_verbose("\ay  OkayToEngage() %s is fighting Stranger --> Not Engaging", Utils.GetTargetCleanName())
+        return false
+    end
+
     if Utils.GetTargetID() ~= autoTargetId then
-        RGMercsLogger.log_verbose("%d != %d --> Not Engaging", target.ID() or 0, autoTargetId)
+        RGMercsLogger.log_verbose("  OkayToEngage() %d != %d --> Not Engaging", target.ID() or 0, autoTargetId)
         return false
     end
 
     if target.Mezzed.ID() and not config.AllowMezBreak then
-        RGMercsLogger.log_debug("Target is mezzed and not AllowMezBreak --> Not Engaging")
+        RGMercsLogger.log_debug("  OkayToEngage() Target is mezzed and not AllowMezBreak --> Not Engaging")
         return false
     end
 
@@ -2444,20 +2512,20 @@ function Utils.OkToEngage(autoTargetId)
         local assistCheck = (Utils.GetTargetPctHPs() <= config.AutoAssistAt or Utils.IsTanking() or Utils.IAmMA())
         if distanceCheck and assistCheck then
             if not mq.TLO.Me.Combat() then
-                RGMercsLogger.log_verbose("\ay%d < %d and %d < %d or Tanking or %d == %d --> \agOK To Engage!",
+                RGMercsLogger.log_verbose("\ag  OkayToEngage() %d < %d and %d < %d or Tanking or %d == %d --> \agOK To Engage!",
                     target.Distance(), config.AssistRange, Utils.GetTargetPctHPs(), config.AutoAssistAt, assistId,
                     mq.TLO.Me.ID())
             end
             return true
         else
-            RGMercsLogger.log_verbose("\ayAssistCheck failed for: %s / %d distanceCheck(%s/%d), assistCheck(%s)",
+            RGMercsLogger.log_verbose("\ay  OkayToEngage() AssistCheck failed for: %s / %d distanceCheck(%s/%d), assistCheck(%s)",
                 target.CleanName(), target.ID(), Utils.BoolToColorString(distanceCheck), Utils.GetTargetDistance(),
                 Utils.BoolToColorString(assistCheck))
             return false
         end
     end
 
-    RGMercsLogger.log_verbose("\ayOkay to Engage Failed with Fall Through!",
+    RGMercsLogger.log_verbose("\ay  OkayToEngage() Okay to Engage Failed with Fall Through!",
         Utils.BoolToColorString(pcCheck), Utils.BoolToColorString(mercCheck))
     return false
 end
@@ -2468,7 +2536,7 @@ function Utils.PetAttack(targetId)
     local target = mq.TLO.Spawn(targetId)
 
     if not target() then return end
-    if not pet() then return end
+    if pet.ID() == 0 then return end
 
     if (not pet.Combat() or pet.Target.ID() ~= target.ID()) and target.Type() == "NPC" then
         Utils.DoCmd("/squelch /pet attack")
@@ -2597,6 +2665,12 @@ function Utils.SetLoadOut(caller, spellGemList, itemSets, abilitySets)
         local spellTable = abilitySets[unresolvedName]
         RGMercsLogger.log_debug("\ayFinding best spell for Set: \am%s", unresolvedName)
         resolvedActionMap[unresolvedName] = Utils.GetBestSpell(spellTable, resolvedActionMap)
+    end
+
+    -- Allow a callback fn for generating spell loadouts rather than a static list
+    -- Can be used by bards to prioritize loadouts based on user choices
+    if spellGemList.getSpellCallback ~= nil and type(spellGemList.getSpellCallback) == "function" then
+        spellGemList = spellGemList.getSpellCallback()
     end
 
     for _, g in ipairs(spellGemList or {}) do
@@ -3326,7 +3400,7 @@ function Utils.LoadSpellLoadOut(spellLoadOut)
         end
 
         if mq.TLO.Me.Gem(gem)() ~= selectedRank then
-            Utils.MemorizeSpell(gem, selectedRank, 7000)
+            Utils.MemorizeSpell(gem, selectedRank, 15000)
         end
     end
 end

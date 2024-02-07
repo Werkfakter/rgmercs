@@ -2,7 +2,7 @@ local mq           = require('mq')
 local RGMercUtils  = require("utils.rgmercs_utils")
 
 local _ClassConfig = {
-    _version            = "0.1a",
+    _version            = "1.0 Beta",
     _author             = "Derple",
     ['CommandHandlers'] = {
         defdisc = {
@@ -554,7 +554,7 @@ local _ClassConfig = {
                 type = "Ability",
                 cond = function(self, abilityName)
                     return mq.TLO.Me.AbilityReady(abilityName)() and
-                        RGMercUtils.GetTargetDistance() < RGMercUtils.GetTargetMaxRangeTo()
+                        RGMercUtils.GetTargetDistance() < RGMercUtils.GetTargetMaxRangeTo() and mq.TLO.Me.Inventory("offhand").Type() == "Shield"
                 end,
             },
             {
@@ -595,7 +595,7 @@ local _ClassConfig = {
                 type = "Ability",
                 cond = function(self, abilityName)
                     return mq.TLO.Me.AbilityReady(abilityName)() and
-                        RGMercUtils.GetTargetDistance() < RGMercUtils.GetTargetMaxRangeTo()
+                        RGMercUtils.GetTargetDistance() < 15
                 end,
             },
             {

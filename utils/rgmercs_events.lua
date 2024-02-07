@@ -41,6 +41,41 @@ end)
 
 -- [ END CANT SEE HANDLERS ] --
 
+-- [ TOO CLOSE HANDLERS] --
+
+mq.event("TooClose", "Your target is too close to use a ranged weapon!", function()
+    -- Check if we're in the middle of a pull and use a backup.
+    if RGMercUtils.GetSetting('DoPull') and RGMercModules:ExecModule("Pull", "IsPullState", "PULL_PULLING") then
+        local discSpell = mq.TLO.Spell("Throw Stone")
+        if RGMercUtils.NPCDiscReady(discSpell) then
+            RGMercUtils.UseDisc(discSpell, mq.TLO.Target.ID())
+        else
+            if RGMercUtils.AbilityReady("Taunt") then
+                RGMercUtils.DoCmd("/nav id %d distance=%d lineofsite=on log=off", RGMercUtils.GetTargetID(), RGMercUtils.GetTargetMaxRangeTo())
+                mq.delay("2s", function() return mq.TLO.Navigation.Active() end)
+                RGMercUtils.UseAbility("Taunt")
+            end
+            if RGMercUtils.AbilityReady("Kick") then
+                RGMercUtils.DoCmd("/nav id %d distance=%d lineofsite=on log=off", RGMercUtils.GetTargetID(), RGMercUtils.GetTargetMaxRangeTo())
+                mq.delay("2s", function() return mq.TLO.Navigation.Active() end)
+                RGMercUtils.UseAbility("Kick")
+            end
+        end
+    end
+
+    -- Only do non-pull code if autoengage is on
+    if RGMercUtils.GetSetting('DoAutoEngage') then
+        if RGMercUtils.MyClassIs("rng") and not RGMercModules:ExecModule("Pull", "IsPullState", "PULL_PULLING") then
+            -- Basic stick code until we implement nav circumference
+            RGMercUtils.NavAroundCircle(mq.TLO.Target, 45, true)
+        end
+    end
+
+    mq.flushevents("TooClose")
+end)
+
+-- [ END TOO CLOSE HANDLERS] --
+
 -- [ TOO FAR HANDLERS ] --
 
 local function tooFarHandler()
@@ -90,7 +125,7 @@ mq.event('Being Memo', "Beginning to memorize #1#...", function(spell)
     RGMercUtils.Memorizing = true
 end)
 
-mq.event('End Memo', "You have finished memorizing #1#", function(spell)
+mq.event('End Memo', "You have finished memorizing #1#.", function(spell)
     RGMercUtils.Memorizing = false
 end)
 
@@ -99,6 +134,15 @@ mq.event('Abort Memo', "Aborting memorization of spell.", function()
 end)
 
 -- [ END MEM SPELL HANDLERS ] --
+
+-- [ SCRIBE SPELL HANDLERS ] --
+
+mq.event('End Scribe', "You have finished scribing #1#.", function(spell)
+    -- Rescan spell list
+    RGMercModules:ExecModule("Class", "RescanLoadout")
+end)
+
+-- [ END SCRIBE SPELL HANDLERS ] --
 
 -- [ CAST RESULT HANDLERS ] --
 mq.event('Success1', "You begin casting#*#", function()
@@ -284,6 +328,18 @@ end)
 
 -- [ END CAST RESULT HANDLERS ] --
 
+-- [ MEZ HANDLERS ] --
+
 mq.event('MezBroken', "#1# has been awakened by #2#.", function(_, mobName, breakerName)
     RGMercModules:ExecModule("Mez", "HandleMezBroke", mobName, breakerName)
 end)
+
+-- [ END MEZ HANDLERS ] --
+
+-- [ GAME EVENT HANDLERS ] --
+
+mq.event('Camping', "It will take you about #1# seconds to prepare your camp.", function(seconds)
+    RGMercConfig.Globals.PauseMain = true
+end)
+
+-- [ END GAME EVENT HANDLERS ] --
