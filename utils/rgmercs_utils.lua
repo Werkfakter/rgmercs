@@ -1001,7 +1001,7 @@ function Utils.ExecEntry(caller, entry, targetId, resolvedActionMap, bAllowMem)
 
     -- Run pre-activates
     if entry.pre_activate then
-        RGMercsLogger.log_debug("Running Pre-Activate for %s", entry.name)
+        RGMercsLogger.log_super_verbose("Running Pre-Activate for %s", entry.name)
         entry.pre_activate(caller, Utils.GetEntryConditionArg(resolvedActionMap, entry))
     end
 
@@ -1127,7 +1127,7 @@ end
 ---@param entry table
 ---@param targetId integer
 ---@return boolean, boolean # check pass and active pass
-function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId)
+function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId, uiCheck)
     local condArg = Utils.GetEntryConditionArg(resolvedActionMap, entry)
     local condTarg = mq.TLO.Spawn(targetId)
     local pass = false
@@ -1137,7 +1137,7 @@ function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId)
         local logInfo = string.format("check failed - Entry(\at%s\ay), condArg(\at%s\ay), condTarg(\at%s\ay)", entry.name or "NoName",
             (type(condArg) == 'userdata' and condArg() or condArg) or "None",
             condTarg.CleanName() or "None")
-        pass = Utils.SafeCallFunc("Condition " .. logInfo, entry.cond, caller, condArg, condTarg, false)
+        pass = Utils.SafeCallFunc("Condition " .. logInfo, entry.cond, caller, condArg, condTarg, uiCheck)
 
         if entry.active_cond then
             active = Utils.SafeCallFunc("Active " .. logInfo, entry.active_cond, caller, condArg)
@@ -1169,7 +1169,7 @@ function Utils.RunRotation(caller, rotationTable, targetId, resolvedActionMap, s
             RGMercsLogger.log_verbose("\aoDoing RunRotation(start(%d), step(%d), cur(%d))", start_step, steps, idx)
             lastStepIdx = idx
             if entry.cond then
-                local pass = Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId)
+                local pass = Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId, false)
                 if pass == true then
                     local res = Utils.ExecEntry(caller, entry, targetId, resolvedActionMap, bAllowMem)
                     if res == true then
@@ -1410,7 +1410,7 @@ end
 ---@param target MQTarget|nil
 ---@return number
 function Utils.GetTargetMaxRangeTo(target)
-    return (target and target.MaxRangeTo() or (mq.TLO.Target.MaxRangeTo() or 0))
+    return (target and target.MaxRangeTo() or (mq.TLO.Target.MaxRangeTo() or 15))
 end
 
 ---@param target MQTarget|nil
@@ -1539,11 +1539,20 @@ function Utils.DoStick(config, targetId)
     end
 end
 
+function Utils.DoGroupCmd(cmd, ...)
+    local dgcmd = "/dga /if ($\\{Zone.ID} == ${Zone.ID} && $\\{Group.Leader.Name.Equal[${Group.Leader.Name}]}) "
+    local formatted = cmd
+    if ... ~= nil then formatted = string.format(cmd, ...) end
+    formatted = dgcmd .. formatted
+    RGMercsLogger.log_debug("\atRGMercs \awsent MQ \amGroup Command\aw: >> \ag%s\aw <<", formatted)
+    mq.cmd(formatted)
+end
+
 function Utils.DoCmd(cmd, ...)
     local formatted = cmd
     if ... ~= nil then formatted = string.format(cmd, ...) end
     RGMercsLogger.log_debug("\atRGMercs \awsent MQ \amCommand\aw: >> \ag%s\aw <<", formatted)
-    mq.cmdf(formatted)
+    mq.cmd(formatted)
 end
 
 ---@param target MQTarget
@@ -1613,7 +1622,7 @@ function Utils.NavInCombat(config, targetId, distance, bDontStick)
     end
 
     if mq.TLO.Navigation.PathExists("id " .. tostring(targetId) .. " distance " .. tostring(distance))() then
-        Utils.DoCmd("/nav id %d distance=%d log=off lineofsight=on", targetId, distance)
+        Utils.DoCmd("/nav id %d distance=%d log=off lineofsight=on", targetId, distance or 15)
         while mq.TLO.Navigation.Active() and mq.TLO.Navigation.Velocity() > 0 do
             mq.delay(100)
         end
@@ -1710,7 +1719,7 @@ function Utils.AutoMed()
     local forcestand = false
 
     -- Allow sufficient time for the player to do something before char plunks down. Spreads out med sitting too.
-    if RGMercConfig:GetTimeSinceLastMove() < math.random(7, 12) then return end
+    if RGMercConfig:GetTimeSinceLastMove() < math.random(Utils.GetSetting('AfterMedCombatDelay')) then return end
 
     if RGMercConfig.Constants.RGHybrid:contains(me.Class.ShortName()) then
         -- Handle the case where we're a Hybrid. We need to check mana and endurance. Needs to be done after
@@ -1952,14 +1961,14 @@ function Utils.EngageTarget(autoTargetId, preEngageRoutine)
             end
 
             if (Utils.GetTargetPctHPs() <= config.AutoAssistAt or Utils.IAmMA()) and Utils.GetTargetPctHPs() > 0 then
-                if target.Distance() > target.MaxRangeTo() then
+                if target.Distance() > Utils.GetTargetMaxRangeTo(target) then
                     RGMercsLogger.log_debug("Target is too far! %d>%d attempting to nav to it.", target.Distance(),
                         target.MaxRangeTo())
                     if preEngageRoutine then
                         preEngageRoutine()
                     end
 
-                    Utils.NavInCombat(config, autoTargetId, target.MaxRangeTo(), false)
+                    Utils.NavInCombat(config, autoTargetId, Utils.GetTargetMaxRangeTo(target), false)
                 else
                     if mq.TLO.Navigation.Active() then
                         Utils.DoCmd("/nav stop log=off")
@@ -2669,7 +2678,7 @@ function Utils.SetLoadOut(caller, spellGemList, itemSets, abilitySets)
 
     -- Allow a callback fn for generating spell loadouts rather than a static list
     -- Can be used by bards to prioritize loadouts based on user choices
-    if spellGemList.getSpellCallback ~= nil and type(spellGemList.getSpellCallback) == "function" then
+    if spellGemList and spellGemList.getSpellCallback and type(spellGemList.getSpellCallback) == "function" then
         spellGemList = spellGemList.getSpellCallback()
     end
 
@@ -3075,7 +3084,7 @@ function Utils.RenderRotationTable(caller, name, rotationTable, resolvedActionMa
             end
             ImGui.TableNextColumn()
             if entry.cond then
-                local pass, active = Utils.TestConditionForEntry(caller, resolvedActionMap, entry, mq.TLO.Target.ID())
+                local pass, active = Utils.TestConditionForEntry(caller, resolvedActionMap, entry, mq.TLO.Target.ID(), true)
 
                 if active == true then
                     ImGui.PushStyleColor(ImGuiCol.Text, 0.03, 1.0, 0.3, 1.0)

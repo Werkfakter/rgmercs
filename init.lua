@@ -32,7 +32,7 @@ local curState       = "Downtime"
 -- Icon Rendering
 local animItems      = mq.FindTextureAnimation("A_DragItem")
 local animBox        = mq.FindTextureAnimation("A_RecessedBox")
-local derpImg        = mq.CreateTexture(mq.TLO.Lua.Dir() .. "/rgmercs/extras/derpdog.jpg")
+local derpImg        = mq.CreateTexture(mq.TLO.Lua.Dir() .. "/rgmercs/extras/derpdog_60.png")
 
 -- Constants
 local ICON_WIDTH     = 40
@@ -116,7 +116,7 @@ end
 
 ---@return number
 local function GetMainOpacity()
-    return tonumber(RGMercConfig:GetSettings().BgOpacity) or 1.0
+    return tonumber(RGMercConfig:GetSettings().BgOpacity / 100) or 1.0
 end
 
 local function RGMercsGUI()
@@ -154,8 +154,8 @@ local function RGMercsGUI()
         local imGuiStyle = ImGui.GetStyle()
 
         ImGui.PushStyleVar(ImGuiStyleVar.Alpha, GetMainOpacity()) -- Main window opacity.
-        ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarRounding, 10)
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6)
+        ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarRounding, RGMercConfig:GetSettings().ScrollBarRounding)
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, RGMercConfig:GetSettings().FrameEdgeRounding)
         openGUI, shouldDrawGUI = ImGui.Begin('RGMercs', openGUI)
         ImGui.PushID("##RGMercsUI_" .. RGMercConfig.Globals.CurLoadedChar)
 
@@ -184,16 +184,6 @@ local function RGMercsGUI()
 
             ImGui.NewLine()
             ImGui.Separator()
-
-            local newOpacity, changed = ImGui.SliderFloat("Opacity", tonumber(RGMercConfig:GetSettings().BgOpacity) or 1.0, 0.1, 1.0)
-
-            if changed then
-                RGMercConfig:GetSettings().BgOpacity = tostring(newOpacity)
-                if RGMercsConsole.opacity then
-                    RGMercsConsole.opacity = GetMainOpacity()
-                end
-                RGMercConfig:SaveSettings(false)
-            end
 
             if ImGui.BeginTabBar("RGMercsTabs", ImGuiTabBarFlags.None) then
                 ImGui.SetItemDefaultFocus()
@@ -291,14 +281,14 @@ local function RGMercsGUI()
         end
 
         ImGui.PopID()
-        ImGui.End()
-        if themeStylePop > 0 then
+        ImGui.PopStyleVar(3)
+        if themeColorPop > 0 then
             ImGui.PopStyleColor(themeColorPop)
         end
         if themeStylePop > 0 then
             ImGui.PopStyleVar(themeStylePop)
         end
-        ImGui.PopStyleVar(3)
+        ImGui.End()
     end
 end
 

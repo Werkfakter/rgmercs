@@ -348,11 +348,11 @@ function Module:Render()
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, ImGui.GetStyle().FramePadding.x, 0)
         if campData.returnToCamp then
             if ImGui.Button("Break Group Camp", ImGui.GetWindowWidth() * .3, 18) then
-                RGMercUtils.DoCmd("/dgza /rgl campoff")
+                RGMercUtils.DoGroupCmd("/rgl campoff")
             end
         else
             if ImGui.Button("Set Group Camp Here", ImGui.GetWindowWidth() * .3, 18) then
-                RGMercUtils.DoCmd("/dgza /rgl campon")
+                RGMercUtils.DoGroupCmd("/rgl campon")
             end
         end
         ImGui.PopStyleVar(1)
@@ -773,7 +773,7 @@ function Module:FixPullerMerc()
         local merc = mq.TLO.Group.Member(i)
 
         if merc and merc() and merc.Type() == "Mercenary" and merc.Owner.DisplayName() == mq.TLO.Group.Puller() then
-            if (merc.Distance() or 0) > RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius(merc.Owner.Distance() or 0) < RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius then
+            if (merc.Distance() or 0) > RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius and (merc.Owner.Distance() or 0) < RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius then
                 RGMercUtils.DoCmd("/grouproles unset %s 3", mq.TLO.Me.DisplayName())
                 mq.delay("10s", function() return (merc.Distance() or 0) < RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius end)
                 RGMercUtils.DoCmd("/grouproles set %s 3", mq.TLO.Me.DisplayName())
