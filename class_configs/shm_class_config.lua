@@ -710,16 +710,16 @@ local _ClassConfig = {
             {
                 name = "RecklessHeal1",
                 type = "Spell",
-                cond = function(self, _)
-                    return RGMercUtils.GetMainAssistPctHPs() <=
+                cond = function(self, _, target)
+                    return (target and target.PctHPs() or 100) <=
                         RGMercUtils.GetSetting('RecklessHealPct')
                 end,
             },
             {
                 name = "GroupRenewalHoT",
                 type = "Spell",
-                cond = function(self, spell)
-                    return RGMercUtils.GetMainAssistPctHPs() <= RGMercUtils.GetSetting('MainHealPoint') and
+                cond = function(self, spell, target)
+                    return (target and target.PctHPs() or 100) <= RGMercUtils.GetSetting('MainHealPoint') and
                         RGMercUtils.GetSetting('DoHOT') and spell.StacksTarget() and
                         not RGMercUtils.TargetHasBuff(spell)
                 end,
@@ -727,8 +727,8 @@ local _ClassConfig = {
             {
                 name = "Call of the Ancients",
                 type = "AA",
-                cond = function(self, aaName)
-                    return RGMercUtils.GetMainAssistPctHPs() <= RGMercUtils.GetSetting('MainHealPoint')
+                cond = function(self, aaName, target)
+                    return (target and target.PctHPs() or 100) <= RGMercUtils.GetSetting('MainHealPoint')
                 end,
             },
         },
@@ -810,7 +810,7 @@ local _ClassConfig = {
             targetId = function(self) return { mq.TLO.Me.ID(), } end,
             cond = function(self, combat_state)
                 return combat_state == "Downtime" and
-                    RGMercUtils.DoBuffCheck()
+                    RGMercUtils.DoBuffCheck() and RGMercConfig:GetTimeSinceLastMove() > RGMercUtils.GetSetting('BuffWaitMoveTimer')
             end,
         },
         {
@@ -825,7 +825,8 @@ local _ClassConfig = {
                 return
                     groupIds
             end,
-            cond = function(self, combat_state) return combat_state == "Downtime" and RGMercUtils.DoBuffCheck() end,
+            cond = function(self, combat_state) return combat_state == "Downtime" and RGMercUtils.DoBuffCheck() and
+                RGMercConfig:GetTimeSinceLastMove() > RGMercUtils.GetSetting('BuffWaitMoveTimer') end,
         },
         {
             name = 'Splash',
@@ -1276,7 +1277,7 @@ local _ClassConfig = {
                 name = "FocusSpell",
                 type = "Spell",
                 cond = function(self, spell, target)
-                    return not RGMercUtils.TargetHasBuff(spell, target)
+                    return not RGMercUtils.TargetHasBuff(spell, target) and spell.StacksTarget()
                 end,
             },
             {
@@ -1505,7 +1506,7 @@ local _ClassConfig = {
         },
     },
     ['DefaultConfig']     = {
-        ['Mode']              = { DisplayName = "Mode", Category = "Combat", Tooltip = "Select the Combat Mode for this Toon", Type = "Custom", RequiresLoadoutChange = true, Default = 1, Min = 1, Max = 3, },
+        ['Mode']              = { DisplayName = "Mode", Category = "Combat", Tooltip = "Select the Combat Mode for this Toon", Type = "Custom", RequiresLoadoutChange = true, Default = 2, Min = 1, Max = 2, },
         ['DoNuke']            = { DisplayName = "Cast Nukes", Category = "Spells and Abilities", Tooltip = "Use Nuke Spells", Default = true, },
         ['DoHOT']             = { DisplayName = "Cast HOTs", Category = "Spells and Abilities", Tooltip = "Use Heal Over Time Spells", Default = true, },
         ['RecklessHealPct']   = { DisplayName = "Reckless Heal %", Category = "Spells and Abilities", Tooltip = "Use Reckless Heal When Assist hits [X]% HPs", Default = 80, Min = 1, Max = 100, },

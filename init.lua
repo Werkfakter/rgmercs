@@ -94,13 +94,13 @@ local function RenderTarget()
     ImGui.SameLine()
     if RGMercConfig.Globals.AutoTargetID == 0 then
         ImGui.Text("None")
-        ImGui.ProgressBar(0, -1, 25)
+        RGMercUtils.RenderProgressBar(0, -1, 25)
     else
         local assistSpawn = RGMercUtils.GetAutoTarget()
         local pctHPs = assistSpawn.PctHPs() or 0
         if not pctHPs then pctHPs = 0 end
         local ratioHPs = pctHPs / 100
-        ImGui.PushStyleColor(ImGuiCol.PlotHistogram, 1 - ratioHPs, ratioHPs, 0, 1)
+        ImGui.PushStyleColor(ImGuiCol.PlotHistogram, 1 - ratioHPs, ratioHPs, 0.2, 0.7)
         if math.floor(assistSpawn.Distance() or 0) >= 350 then
             ImGui.PushStyleColor(ImGuiCol.Text, 1.0, 0.0, 0.0, 1)
         else
@@ -108,8 +108,7 @@ local function RenderTarget()
         end
         ImGui.Text(string.format("%s (%s) [%d %s] HP: %d%% Dist: %d", assistSpawn.CleanName() or "", assistSpawn.ID() or 0, assistSpawn.Level() or 0,
             assistSpawn.Class.ShortName() or "N/A", assistSpawn.PctHPs() or 0, assistSpawn.Distance() or 0))
-        ImGui.ProgressBar(ratioHPs, -1, 25)
-
+        RGMercUtils.RenderProgressBar(ratioHPs, -1, 25)
         ImGui.PopStyleColor(2)
     end
 end
@@ -156,7 +155,7 @@ local function RGMercsGUI()
         ImGui.PushStyleVar(ImGuiStyleVar.Alpha, GetMainOpacity()) -- Main window opacity.
         ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarRounding, RGMercConfig:GetSettings().ScrollBarRounding)
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, RGMercConfig:GetSettings().FrameEdgeRounding)
-        openGUI, shouldDrawGUI = ImGui.Begin('RGMercs', openGUI)
+        openGUI, shouldDrawGUI = ImGui.Begin(string.format('RGMercs'), openGUI)
         ImGui.PushID("##RGMercsUI_" .. RGMercConfig.Globals.CurLoadedChar)
 
         if shouldDrawGUI then
@@ -309,7 +308,7 @@ local function RGInit(...)
     unloadedPlugins = RGMercUtils.UnCheckPlugins({ "MQ2Melee", })
 
     -- complex objects are passed by reference so we can just use these without having to pass them back in for saving.
-    RGMercConfig.SubModuleSettings = RGMercModules:ExecAll("Init")
+    RGMercConfig:SetSubModules(RGMercModules:ExecAll("Init"))
 
     if not RGMercUtils.GetSetting('DoTwist') then
         local unloaded = RGMercUtils.UnCheckPlugins({ "MQ2Twist", })
@@ -323,7 +322,7 @@ local function RGInit(...)
     end
 
     for k, v in ipairs(RGMercConfig.Constants.ExpansionIDToName) do
-        RGMercsLogger.log_debug("\ayExpansion \at%s\ao[\am%d\ao]: %s", v, k, RGMercUtils.HaveExpansion(v) and "\agEnabled" or "\arDisabled")
+        RGMercsLogger.log_debug("\ayExpansion \at%-22s\ao[\am%02d\ao]: %s", v, k, RGMercUtils.HaveExpansion(v) and "\agEnabled" or "\arDisabled")
     end
 
     -- TODO: Can turn this into an options parser later.
@@ -430,7 +429,10 @@ local function Main()
 
     if RGMercUtils.FindTargetCheck() then
         -- This will find a valid target and set it to : RGMercConfig.Globals.AutoTargetID
-        RGMercUtils.FindTarget()
+        RGMercUtils.FindTarget(function(targetId)
+            if RGMercUtils.OkToEngagePreValidateId(targetId) then return true end
+            return false
+        end)
     end
 
     if RGMercUtils.OkToEngage(RGMercConfig.Globals.AutoTargetID) then
@@ -487,10 +489,6 @@ local function Main()
         end
     end
 
-    if RGMercUtils.DoBuffCheck() and not RGMercUtils.GetSetting('PriorityHealing') then
-        -- TODO: Group Buffs
-    end
-
     if RGMercUtils.GetSetting('DoModRod') then
         RGMercUtils.ClickModRod()
     end
@@ -537,18 +535,19 @@ end
 -- Global Messaging callback
 ---@diagnostic disable-next-line: unused-local
 local script_actor = RGMercUtils.Actors.register(function(message)
-    if message()["from"] == RGMercConfig.Globals.CurLoadedChar then return end
-    if message()["script"] ~= RGMercUtils.ScriptName then return end
+    local msg = message()
+    if msg.from == RGMercConfig.Globals.CurLoadedChar then return end
+    if msg.script ~= RGMercUtils.ScriptName then return end
 
-    RGMercsLogger.log_info("\ayGot Event from(\am%s\ay) module(\at%s\ay) event(\at%s\ay)", message()["from"],
-        message()["module"],
-        message()["event"])
+    RGMercsLogger.log_info("\ayGot Event from(\am%s\ay) module(\at%s\ay) event(\at%s\ay)", msg.from,
+        msg.module,
+        msg.event)
 
-    if message()["module"] then
-        if message()["module"] == "main" then
+    if msg.module then
+        if msg.module == "main" then
             RGMercConfig:LoadSettings()
         else
-            RGMercModules:ExecModule(message()["module"], message()["event"], message()["data"])
+            RGMercModules:ExecModule(msg.module, msg.event, msg.data)
         end
     end
 end)

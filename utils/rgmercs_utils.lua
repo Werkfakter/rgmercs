@@ -862,11 +862,11 @@ function Utils.UseSong(songName, targetId, bAllowMem)
             mq.delay(1)
         end
 
-        if targetId == me.ID() then
-            mq.delay("5s", function() return me.Song(songName).Duration.Seconds() > oldDuration end)
-        end
+        -- bard songs take a bit to refresh after casting window closes, otherwise we'll clip our song
+        mq.delay(500, function() return me.Casting.ID() == 0 end)
 
-        if Utils.GetLastCastResultName() == RGMercConfig.Constants.CastResults.CAST_SUCCESS then
+
+        if Utils.GetLastCastResultId() == RGMercConfig.Constants.CastResults.CAST_SUCCESS then
             Utils.DoCmd("/stopsong")
             return true
         end
@@ -1134,9 +1134,9 @@ function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId,
     local active = false
 
     if condArg ~= nil then
-        local logInfo = string.format("check failed - Entry(\at%s\ay), condArg(\at%s\ay), condTarg(\at%s\ay)", entry.name or "NoName",
+        local logInfo = string.format("check failed - Entry(\at%s\ay), condArg(\at%s\ay), condTarg(\at%s\ay), uiCheck(%s)", entry.name or "NoName",
             (type(condArg) == 'userdata' and condArg() or condArg) or "None",
-            condTarg.CleanName() or "None")
+            condTarg.CleanName() or "None", Utils.BoolToColorString(uiCheck))
         pass = Utils.SafeCallFunc("Condition " .. logInfo, entry.cond, caller, condArg, condTarg, uiCheck)
 
         if entry.active_cond then
@@ -1144,9 +1144,11 @@ function Utils.TestConditionForEntry(caller, resolvedActionMap, entry, targetId,
         end
     end
 
-    RGMercsLogger.log_verbose("\ay   :: Testing Condition for entry(%s) type(%s) cond(s, %s, %s) ==> \ao%s",
-        entry.name, entry.type, condArg or "None",
-        condTarg.CleanName() or "None", Utils.BoolToColorString(pass))
+    if not uiCheck then
+        RGMercsLogger.log_verbose("\ay   :: Testing Condition for entry(%s) type(%s) cond(s, %s, %s) ==> \ao%s",
+            entry.name, entry.type, condArg or "None",
+            condTarg.CleanName() or "None", Utils.BoolToColorString(pass))
+    end
 
     return pass, active
 end
@@ -1164,6 +1166,10 @@ function Utils.RunRotation(caller, rotationTable, targetId, resolvedActionMap, s
     local stepsThisTime  = 0
     local lastStepIdx    = 0
 
+    -- This is useful when class config wants to re-check every rotation condition every run
+    -- For example, if gem1 meets all condition criteria, it WILL cast repeatedly on every cast
+    -- Used for bards to dynamically weave properly
+    if rotationTable.doFullRotation then start_step = 1 end
     for idx, entry in ipairs(rotationTable) do
         if idx >= start_step then
             RGMercsLogger.log_verbose("\aoDoing RunRotation(start(%d), step(%d), cur(%d))", start_step, steps, idx)
@@ -1234,7 +1240,7 @@ function Utils.SelfBuffPetCheck(spell)
     return (not mq.TLO.Me.PetBuff(spell.RankName.Name())()) and spell.StacksPet() and mq.TLO.Me.Pet.ID() > 0
 end
 
----@param spell MQSpell
+---@param spell MQSpell|string
 ---@return boolean
 function Utils.SelfBuffCheck(spell)
     if type(spell) == "string" then
@@ -1255,16 +1261,37 @@ function Utils.SelfBuffCheck(spell)
     return res
 end
 
+---@param string string
+---@param len number
+---@param padFront boolean
+---@param padChar string?
+function Utils.PadString(string, len, padFront, padChar)
+    if not padChar then padChar = " " end
+    local cleanText = string:gsub("\a[-]?.", "")
+
+    local paddingNeeded = len - cleanText:len()
+
+    for _ = 1, paddingNeeded do
+        if padFront then
+            string = padChar .. string
+        else
+            string = string .. padChar
+        end
+    end
+
+    return string
+end
+
 ---@param b boolean
 ---@return string
 function Utils.BoolToString(b)
-    return b and "TRUE" or "FALSE"
+    return b and "true" or "false"
 end
 
 ---@param b boolean
 ---@return string
 function Utils.BoolToColorString(b)
-    return b and "\agTRUE\ax" or "\arFALSE\ax"
+    return b and "\agtrue\ax" or "\arfalse\ax"
 end
 
 ---Returns a setting from either the global or a module setting table.
@@ -1807,7 +1834,7 @@ function Utils.SongMemed(songSpell)
     if not songSpell or not songSpell() then return false end
     local me = mq.TLO.Me
 
-    return me.Gem(songSpell.Name())() ~= nil
+    return me.Gem(songSpell.RankName.Name())() ~= nil
 end
 
 ---@param songSpell MQSpell
@@ -2090,7 +2117,7 @@ function Utils.IsSpawnFightingStranger(spawn, radius)
                     if cur_spawn.AssistName() == spawn.Name() then
                         RGMercsLogger.log_verbose("[%s] Fighting same mob as: %s Theirs: %s Ours: %s", t,
                             cur_spawn.CleanName(), cur_spawn.AssistName(), spawn.Name())
-                        local checkName = cur_spawn.CleanName()
+                        local checkName = cur_spawn and cur_spawn() or cur_spawn.CleanName() or "None"
 
                         if cur_spawn.Type():lower() == "mercenary" then checkName = cur_spawn.Owner.CleanName() end
                         if cur_spawn.Type():lower() == "pet" then checkName = cur_spawn.Master.CleanName() end
@@ -2232,7 +2259,8 @@ function Utils.MATargetScan(radius, zradius)
 end
 
 --- This will find a valid target and set it to : RGMercConfig.Globals.AutoTargetID
-function Utils.FindTarget()
+---@param validateFn function? # Function which is run before changing targets to avoid target strobing
+function Utils.FindTarget(validateFn)
     RGMercsLogger.log_verbose("FindTarget()")
     if mq.TLO.Spawn(string.format("id %d pcpet xtarhater", mq.TLO.Me.XTarget(1).ID())).ID() > 0 then
         RGMercsLogger.log_verbose("FindTarget() Determined that xtarget(1)=%s is a pcpet xtarhater",
@@ -2313,10 +2341,17 @@ function Utils.FindTarget()
             RGMercsLogger.log_verbose("FindTarget Assisting %s -- Target Agressive: %s", RGMercConfig.Globals.MainAssist,
                 Utils.BoolToColorString(assistTarget.Aggressive()))
 
-            if assistTarget() and assistTarget.Aggressive() and (assistTarget.Type():lower() == "npc" or assistTarget.Type():lower() == "npcpet") then
+            if assistTarget() and (assistTarget.Type():lower() == "npc" or assistTarget.Type():lower() == "npcpet") then
                 RGMercsLogger.log_verbose(" FindTarget Setting Target To %s [%d]", assistTarget.CleanName(),
                     assistTarget.ID())
                 RGMercConfig.Globals.AutoTargetID = assistTarget.ID()
+                if not Utils.IsSpawnXHater(RGMercConfig.Globals.AutoTargetID) then
+                    Utils.SetTarget(RGMercConfig.Globals.AutoTargetID)
+                    mq.delay("2s", function() return mq.TLO.Target.ID() == RGMercConfig.Globals.AutoTargetID end)
+                    mq.cmd("/xtarget set 1 autohater")
+                    mq.delay(100)
+                    mq.cmd("/xtarget add")
+                end
             end
         else
             ---@diagnostic disable-next-line: undefined-field
@@ -2326,7 +2361,9 @@ function Utils.FindTarget()
 
     RGMercsLogger.log_verbose("FindTarget(): FoundTargetID(%d), myTargetId(%d)", RGMercConfig.Globals.AutoTargetID or 0, mq.TLO.Target.ID())
     if RGMercConfig.Globals.AutoTargetID > 0 and mq.TLO.Target.ID() ~= RGMercConfig.Globals.AutoTargetID then
-        Utils.SetTarget(RGMercConfig.Globals.AutoTargetID)
+        if not validateFn or validateFn(RGMercConfig.Globals.AutoTargetID) then
+            Utils.SetTarget(RGMercConfig.Globals.AutoTargetID)
+        end
     end
 end
 
@@ -2478,6 +2515,57 @@ function Utils.FindTargetCheck()
         not RGMercConfig.Globals.BackOffFlag
 end
 
+---@param targetId integer
+---@return boolean
+function Utils.OkToEngagePreValidateId(targetId)
+    local config = RGMercConfig:GetSettings()
+
+    if not config.DoAutoEngage then return false end
+    local target = mq.TLO.Spawn(targetId)
+    local assistId = Utils.GetMainAssistId()
+
+    if not target() or target.Dead() or target.PctHPs() == 0 then return false end
+
+    local pcCheck = (target.Type() or "none"):lower() == "pc" or
+        ((target.Type() or "none"):lower() == "pet" and (target.Master.Type() or "none"):lower() == "pc")
+    local mercCheck = target.Type() == "mercenary"
+    if pcCheck or mercCheck then
+        if not mq.TLO.Me.Combat() then
+            RGMercsLogger.log_verbose(
+                "\ay[2] Target type check failed \aw[\atpcCheckFailed(%s) mercCheckFailed(%s)\aw]\ay",
+                Utils.BoolToColorString(pcCheck), Utils.BoolToColorString(mercCheck))
+        end
+        return false
+    end
+
+    if Utils.GetSetting('SafeTargeting') and Utils.IsSpawnFightingStranger(target, 100) then
+        RGMercsLogger.log_verbose("\ay  OkToEngageId() %s is fighting Stranger --> Not Engaging", Utils.GetTargetCleanName())
+        return false
+    end
+
+    if not RGMercConfig.Globals.BackOffFlag then --Utils.GetXTHaterCount() > 0 and not RGMercConfig.Globals.BackOffFlag then
+        local distanceCheck = Utils.GetTargetDistance() < config.AssistRange
+        local assistCheck = (Utils.GetTargetPctHPs() <= config.AutoAssistAt or Utils.IsTanking() or Utils.IAmMA())
+        if distanceCheck and assistCheck then
+            if not mq.TLO.Me.Combat() then
+                RGMercsLogger.log_verbose("\ag  OkToEngageId() %d < %d and %d < %d or Tanking or %d == %d --> \agOK To Engage!",
+                    target.Distance(), config.AssistRange, Utils.GetTargetPctHPs(), config.AutoAssistAt, assistId,
+                    mq.TLO.Me.ID())
+            end
+            return true
+        else
+            RGMercsLogger.log_verbose("\ay  OkToEngageId() AssistCheck failed for: %s / %d distanceCheck(%s/%d), assistCheck(%s)",
+                target.CleanName(), target.ID(), Utils.BoolToColorString(distanceCheck), Utils.GetTargetDistance(),
+                Utils.BoolToColorString(assistCheck))
+            return false
+        end
+    end
+
+    RGMercsLogger.log_verbose("\ay  OkToEngageId() Okay to Engage Failed with Fall Through!",
+        Utils.BoolToColorString(pcCheck), Utils.BoolToColorString(mercCheck))
+    return false
+end
+
 ---@param autoTargetId integer
 ---@return boolean
 function Utils.OkToEngage(autoTargetId)
@@ -2511,7 +2599,8 @@ function Utils.OkToEngage(autoTargetId)
         return false
     end
 
-    if target.Mezzed.ID() and not config.AllowMezBreak then
+    -- if this target is from a target ID then it wont have .Mezzed
+    if target.Mezzed and target.Mezzed.ID() and not config.AllowMezBreak then
         RGMercsLogger.log_debug("  OkayToEngage() Target is mezzed and not AllowMezBreak --> Not Engaging")
         return false
     end
@@ -2586,7 +2675,7 @@ end
 ---@param buffName string
 ---@return boolean
 function Utils.BuffActiveByName(buffName)
-    if not buffName then return false end
+    if not buffName or buffName:len() == 0 then return false end
     if type(buffName) ~= "string" then
         RGMercsLogger.log_error("\arUtils.BuffActiveByName was passed a non-string buffname! %s", type(buffName))
         return false
@@ -2682,15 +2771,22 @@ function Utils.SetLoadOut(caller, spellGemList, itemSets, abilitySets)
         spellGemList = spellGemList.getSpellCallback()
     end
 
+    local curGem = 1
+
     for _, g in ipairs(spellGemList or {}) do
-        if Utils.SafeCallFunc(string.format("Gem Conditin Check %d", g.gem), g.cond, caller, g.gem) then
-            RGMercsLogger.log_debug("\ayGem \am%d\ay will be loaded.", g.gem)
+        local gem = g.gem
+        if spellGemList.CollapseGems then
+            gem = curGem
+        end
+
+        if Utils.SafeCallFunc(string.format("Gem Condition Check %d", gem), g.cond, caller, gem) then
+            RGMercsLogger.log_debug("\ayGem \am%d\ay will be loaded.", gem)
 
             if g ~= nil and g.spells ~= nil then
                 for _, s in ipairs(g.spells) do
                     if s.name_func then s.name = Utils.SafeCallFunc("Spell Name Func", s.name_func, caller) or "Error in name_func!" end
                     local spellName = s.name
-                    RGMercsLogger.log_debug("\aw  ==> Testing \at%s\aw for Gem \am%d", spellName, g.gem)
+                    RGMercsLogger.log_debug("\aw  ==> Testing \at%s\aw for Gem \am%d", spellName, gem)
                     if abilitySets[spellName] == nil then
                         -- this means we put a varname into our spell table that we didn't define in the ability list.
                         RGMercsLogger.log_error(
@@ -2704,21 +2800,22 @@ function Utils.SetLoadOut(caller, spellGemList, itemSets, abilitySets)
                         local loadedSpell = spellsToLoad[bestSpell.RankName()] or false
 
                         if pass and bestSpell and bookSpell and not loadedSpell then
-                            RGMercsLogger.log_debug("    ==> \ayGem \am%d\ay will load \at%s\ax ==> \ag%s", g.gem, s
+                            RGMercsLogger.log_debug("    ==> \ayGem \am%d\ay will load \at%s\ax ==> \ag%s", gem, s
                                 .name, bestSpell.RankName())
-                            spellLoadOut[g.gem] = { selectedSpellData = s, spell = bestSpell, }
+                            spellLoadOut[gem] = { selectedSpellData = s, spell = bestSpell, }
                             spellsToLoad[bestSpell.RankName()] = true
+                            curGem = curGem + 1
                             break
                         else
                             RGMercsLogger.log_debug(
                                 "    ==> \ayGem \am%d will \arNOT\ay load \at%s (pass=%s, bestSpell=%s, bookSpell=%d, loadedSpell=%s)",
-                                g.gem, s.name,
+                                gem, s.name,
                                 Utils.BoolToColorString(pass), bestSpell and bestSpell.RankName() or "", bookSpell or -1,
                                 Utils.BoolToColorString(loadedSpell))
                         end
                     else
                         RGMercsLogger.log_debug(
-                            "    ==> \ayGem \am%d\ay will \arNOT\ay load \at%s\ax ==> \arNo Resolved Spell!", g.gem,
+                            "    ==> \ayGem \am%d\ay will \arNOT\ay load \at%s\ax ==> \arNo Resolved Spell!", gem,
                             s.name)
                     end
                 end
@@ -2726,7 +2823,7 @@ function Utils.SetLoadOut(caller, spellGemList, itemSets, abilitySets)
                 RGMercsLogger.log_debug("    ==> No Resolved Spell! class file not configured properly")
             end
         else
-            RGMercsLogger.log_debug("\agGem %d will not be loaded.", g.gem)
+            RGMercsLogger.log_debug("\agGem %d will not be loaded.", gem)
         end
     end
 
@@ -2798,10 +2895,8 @@ end
 
 function Utils.DeleteOA(idx)
     if idx <= #Utils.GetSetting('OutsideAssistList') then
-        RGMercsLogger.log_info("\axOutside Assist \at%s\ax \ag%s\ax - \arDeleted!\ax", idx,
-            Utils.GetSetting('OutsideAssistList[idx]'))
+        RGMercsLogger.log_info("\axOutside Assist \at%d\ax \ag%s\ax - \arDeleted!\ax", idx, Utils.GetSetting('OutsideAssistList')[idx])
         table.remove(Utils.GetSetting('OutsideAssistList'), idx)
-        --Utils.GetSetting('OutsideAssistList[idx]') = nil
         RGMercConfig:SaveSettings(false)
     else
         RGMercsLogger.log_error("\ar%d is not a valid OA ID!", idx)
@@ -2846,8 +2941,8 @@ function Utils.RenderOAList()
         ImGui.PushStyleColor(ImGuiCol.Text, 1.0, 0.0, 1.0, 1)
 
         ImGui.TableSetupColumn('ID', (ImGuiTableColumnFlags.WidthFixed), 20.0)
-        ImGui.TableSetupColumn('Name', (ImGuiTableColumnFlags.WidthFixed), 250.0)
-        ImGui.TableSetupColumn('Distance', (ImGuiTableColumnFlags.WidthFixed), 60.0)
+        ImGui.TableSetupColumn('Name', (ImGuiTableColumnFlags.WidthFixed), 140.0)
+        ImGui.TableSetupColumn('Distance', (ImGuiTableColumnFlags.WidthFixed), 40.0)
         ImGui.TableSetupColumn('Loc', (ImGuiTableColumnFlags.WidthStretch), 150.0)
         ImGui.TableSetupColumn('Controls', (ImGuiTableColumnFlags.WidthFixed), 80.0)
         ImGui.PopStyleColor()
@@ -3192,6 +3287,21 @@ function Utils.RenderOptionToggle(id, text, on)
     return state, toggled
 end
 
+---@param pct number # % of bar
+---@param width number
+---@param height number
+function Utils.RenderProgressBar(pct, width, height)
+    local style = ImGui.GetStyle()
+    local start_x, start_y = ImGui.GetCursorPos()
+    local text = string.format("%d%%", pct * 100)
+    local label_x, _ = ImGui.CalcTextSize(text)
+    ImGui.ProgressBar(pct, width, height, "")
+    local end_x, end_y = ImGui.GetCursorPos()
+    ImGui.SetCursorPos(start_x + ((ImGui.GetWindowWidth() / 2) - (style.ItemSpacing.x + math.floor(label_x / 2))), start_y + style.ItemSpacing.y)
+    ImGui.Text(text)
+    ImGui.SetCursorPos(end_x, end_y)
+end
+
 ---@param id string
 ---@param text string
 ---@param cur number
@@ -3210,9 +3320,9 @@ function Utils.RenderOptionNumber(id, text, cur, min, max, step)
     ImGui.PopStyleColor(4)
     ImGui.PopID()
 
+    input = tonumber(input) or 0
     if input > max then input = max end
     if input < min then input = min end
-
 
     changed = cur ~= input
     return input, changed
@@ -3307,7 +3417,8 @@ function Utils.RenderSettingsTable(settings, settingNames, defaults, category)
                             new_loadout = new_loadout or (pressed and (defaults[k].RequiresLoadoutChange or false))
                             any_pressed = any_pressed or pressed
                         elseif type(settings[k]) == 'string' then -- display only
-                            ImGui.Text(settings[k])
+                            settings[k], pressed = ImGui.InputText("##" .. k, settings[k])
+                            any_pressed = any_pressed or pressed
                             Utils.Tooltip(settings[k])
                         end
                     end

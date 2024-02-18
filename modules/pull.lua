@@ -80,6 +80,15 @@ Module.Constants.PullAbilities         = {
         end,
     },
     {
+        id = "AutoAttack",
+        Type = "Special",
+        DisplayName = "Auto Attack",
+        AbilityRange = 5,
+        cond = function(self)
+            return true
+        end,
+    },
+    {
         id = "Ranged",
         Type = "Special",
         DisplayName = "Ranged",
@@ -125,8 +134,8 @@ Module.DefaultConfig                   = {
     ['PullRadius']         = { DisplayName = "Pull Radius", Category = "Pull Distance", Tooltip = "Distnace to pull", Default = 350, Min = 1, Max = 10000, },
     ['PullZRadius']        = { DisplayName = "Pull Z Radius", Category = "Pull Distance", Tooltip = "Distnace to pull on Z axis", Default = 90, Min = 1, Max = 150, },
     ['PullRadiusFarm']     = { DisplayName = "Pull Radius Farm", Category = "Pull Distance", Tooltip = "Distnace to pull in Farm mode", Default = 90, Min = 1, Max = 10000, },
-    ['PullMinCon']         = { DisplayName = "Pull Min Con", Category = "Pull Targets", Tooltip = "Min Con Mobs to consider pulling", Default = 2, Type = "Combo", ComboOptions = RGMercConfig.Constants.ConColors, },
-    ['PullMaxCon']         = { DisplayName = "Pull Max Con", Category = "Pull Targets", Tooltip = "Max Con Mobs to consider pulling", Default = 5, Type = "Combo", ComboOptions = RGMercConfig.Constants.ConColors, },
+    ['PullMinCon']         = { DisplayName = "Pull Min Con", Category = "Pull Targets", Tooltip = "Min Con Mobs to consider pulling", Default = 2, Min = 1, Max = #RGMercConfig.Constants.ConColors, Type = "Combo", ComboOptions = RGMercConfig.Constants.ConColors, },
+    ['PullMaxCon']         = { DisplayName = "Pull Max Con", Category = "Pull Targets", Tooltip = "Max Con Mobs to consider pulling", Default = 5, Min = 1, Max = #RGMercConfig.Constants.ConColors, Type = "Combo", ComboOptions = RGMercConfig.Constants.ConColors, },
     ['UsePullLevels']      = { DisplayName = "Use Pull Levels", Category = "Pull Targets", Tooltip = "Use Min and Max Levels Instead of Con.", Default = false, ConfigType = "Advanced", },
     ['PullMinLevel']       = { DisplayName = "Pull Min Level", Category = "Pull Targets", Tooltip = "Min Level Mobs to consider pulling", Default = mq.TLO.Me.Level() - 3, Min = 1, Max = 150, ConfigType = "Advanced", },
     ['PullMaxLevel']       = { DisplayName = "Pull Max Level", Category = "Pull Targets", Tooltip = "Max Level Mobs to consider pulling", Default = mq.TLO.Me.Level() + 3, Min = 1, Max = 150, ConfigType = "Advanced", },
@@ -315,7 +324,7 @@ function Module:Render()
     -- dead... whoops
     if mq.TLO.Me.Hovering() then return end
 
-    if self.ModuleLoaded then
+    if self.ModuleLoaded and RGMercConfig.Globals.SubmodulesLoaded then
         if RGMercUtils.GetSetting('DoPull') then
             ImGui.PushStyleColor(ImGuiCol.Button, 0.5, 0.02, 0.02, 1)
         else
@@ -734,14 +743,16 @@ function Module:CheckGroupForPull(classes, resourceStartPct, resourceStopPct, ca
                     return false, string.format("%s Out of Zone", member.CleanName())
                 end
 
-                if (member.Distance() or 0) > RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius then
+                --if (member.Distance() or 0) > math.max(RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius, 80) then
+                if RGMercUtils.GetDistance(member.X(), member.Y(), campData.AutoCampX, campData.AutoCampY) > math.max(RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius, 50) then
                     RGMercUtils.PrintGroupMessage("%s is too far away - Holding pulls!", member.CleanName())
-                    return false, string.format("%s Too Far (%d)", member.CleanName(), member.Distance() or 0)
+                    return false,
+                        string.format("%s Too Far (%d)", member.CleanName(), RGMercUtils.GetDistance(member.X(), member.Y(), campData.AutoCampX, campData.AutoCampY))
                 end
 
                 if self.Constants.PullModes[self.settings.PullMode] == "Chain" then
                     if member.ID() == RGMercUtils.GetMainAssistId() then
-                        if returnToCamp and RGMercUtils.GetDistance(member.Y(), member.X(), campData.AutoCampX, campData.AutoCampY) > RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius then
+                        if returnToCamp and RGMercUtils.GetDistance(member.X(), member.Y(), campData.AutoCampX, campData.AutoCampY) > RGMercConfig.SubModuleSettings.Movement.settings.AutoCampRadius then
                             RGMercUtils.PrintGroupMessage("%s (assist target) is beyond AutoCampRadius from %d, %d, %d : %d. Holding pulls.", member.CleanName(), campData.AutoCampY,
                                 campData.AutoCampX, campData.AutoCampZ, RGMercConfig.SubModuleSettings.settings.Movement.settings.AutoCampRadius)
                             return false, string.format("%s Beyond AutoCampRadius", member.CleanName())
@@ -1294,6 +1305,28 @@ function Module:GiveTime(combat_state)
                     RGMercsLogger.log_super_verbose("Waiting on ranged pull to finish... %s", RGMercUtils.BoolToColorString(successFn()))
                     startingXTargs = RGMercUtils.GetXTHaterIDs()
                     RGMercUtils.DoCmd("/ranged %d", self.TempSettings.PullID)
+                    mq.doevents()
+                    if self:IsPullMode("Chain") and RGMercUtils.DiffXTHaterIDs(startingXTargs) then
+                        break
+                    end
+
+                    if self:CheckForAbort(self.TempSettings.PullID) then
+                        break
+                    end
+                    mq.delay(10)
+                end
+            elseif self.settings.PullAbility == PullAbilityIDToName.AutoAttack then -- Auto Attack pull
+                -- Make sure we're looking straight ahead at our mob and delay
+                -- until we're facing them.
+                RGMercUtils.DoCmd("/look 0")
+
+                mq.delay("3s", function() return mq.TLO.Me.Heading.ShortName() == target.HeadingTo.ShortName() end)
+
+                -- We will continue to fire arrows until we aggro our target
+                while not successFn() do
+                    RGMercsLogger.log_super_verbose("Waiting on ranged pull to finish... %s", RGMercUtils.BoolToColorString(successFn()))
+                    startingXTargs = RGMercUtils.GetXTHaterIDs()
+                    RGMercUtils.DoCmd("/attack")
                     mq.doevents()
                     if self:IsPullMode("Chain") and RGMercUtils.DiffXTHaterIDs(startingXTargs) then
                         break

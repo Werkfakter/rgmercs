@@ -459,7 +459,7 @@ function Module:GiveTime(combat_state)
     end
 
     if not self:ShouldFollow() then
-        RGMercsLogger.log_verbose("ShouldFollow() check failed.")
+        RGMercsLogger.log_super_verbose("ShouldFollow() check failed.")
         return
     end
 
@@ -478,7 +478,7 @@ function Module:GiveTime(combat_state)
         end
 
         if mq.TLO.Me.Dead() then return end
-        if not chaseSpawn() or chaseSpawn.Distance() < self.settings.ChaseDistance then return end
+        if not chaseSpawn or not chaseSpawn() or (chaseSpawn.Distance() or 0) < self.settings.ChaseDistance then return end
 
         local Nav = mq.TLO.Navigation
 

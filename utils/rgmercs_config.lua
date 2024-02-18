@@ -11,6 +11,7 @@ Config.Globals                       = {}
 Config.Globals.MainAssist            = ""
 Config.Globals.AutoTargetID          = 0
 Config.Globals.BurnNow               = false
+Config.Globals.SubmodulesLoaded      = false
 Config.Globals.PauseMain             = false
 Config.Globals.LastMove              = nil
 Config.Globals.BackOffFlag           = false
@@ -159,7 +160,7 @@ Config.DefaultConfig = {
     ['AssistRange']         = { DisplayName = "Assist Range", Category = "Combat", Tooltip = "Distance to the target before you engage.", Default = Config.Constants.RGCasters:contains(Config.Globals.CurLoadedClass) and 90 or 45, Min = 15, Max = 200, ConfigType = "Advanced", },
     ['MAScanZRange']        = { DisplayName = "Main Assist Scan ZRange", Category = "Combat", Tooltip = "Distance in Z direction to look for targets.", Default = 45, Min = 15, Max = 200, ConfigType = "Advanced", },
     ['AutoAssistAt']        = { DisplayName = "Auto Assist At", Category = "Combat", Tooltip = "Melee attack when target hits [x] HP %.", Default = 98, Min = 1, Max = 100, ConfigType = "Advanced", },
-    ['StickHow']            = { DisplayName = "Stick How", Category = "Combat", Tooltip = "Custom /stick command", Type = "Custom", Default = "", ConfigType = "Advanced", },
+    ['StickHow']            = { DisplayName = "Stick How", Category = "Combat", Tooltip = "Custom /stick command", Default = "", ConfigType = "Advanced", },
     ['AllowMezBreak']       = { DisplayName = "Allow Mez Break", Category = "Combat", Tooltip = "Allow Mez Breaking.", Default = false, ConfigType = "Advanced", },
     ['InstantRelease']      = { DisplayName = "Instant Release", Category = "Combat", Tooltip = "Instantly release when you die.", Default = false, ConfigType = "Advanced", },
     ['DoAutoTarget']        = { DisplayName = "Auto Target", Category = "Combat", Tooltip = "Automatically change targets.", Default = true, ConfigType = "Normal", },
@@ -177,6 +178,7 @@ Config.DefaultConfig = {
     -- [ BUFF ] --
     ['DoTwist']             = { DisplayName = "Enable Bard Twisting", Category = "Buffs", Tooltip = "Use MQ2Twist", Default = true, ConfigType = "Advanced", },
     ['DoBuffs']             = { DisplayName = "Do Buffs", Category = "Buffs", Tooltip = "Do Non-Class Specific Buffs.", Default = true, ConfigType = "Advanced", },
+    ['BuffWaitMoveTimer']   = { DisplayName = "Buff Wait Timer", Category = "Buffs", Tooltip = "Seconds to wait after stoping movement before doing buffs.", Default = 5, Min = 0, Max = 60, ConfigType = "Advanced", },
 
     -- [ HEALING ] --
     ['BreakInvis']          = { DisplayName = "Break Invis", Category = "Heals", Tooltip = "Set to break invis to heal injured group or out of group members when out of combat only. Healers will always break invis in combat.", Default = false, ConfigType = "Advanced", },
@@ -216,7 +218,7 @@ Config.DefaultConfig = {
     ['BurnNamed']           = { DisplayName = "Auto Burn Named", Category = "Burns", Tooltip = "Automatically burn named mobs.", Default = false, ConfigType = "Advanced", },
 
     -- [ UI ] --
-    ['BgOpacity']           = { DisplayName = "Background Opacity", Category = "UI", Tooltip = "Opacity for the RGMercs UI", Default = 100, Min = 5, Max = 100, },
+    ['BgOpacity']           = { DisplayName = "Background Opacity", Category = "UI", Tooltip = "Opacity for the RGMercs UI", Default = 100, Min = 20, Max = 100, },
     ['FrameEdgeRounding']   = { DisplayName = "Frame Edge Rounding", Category = "UI", Tooltip = "Frame Edge Rounding for the RGMercs UI", Default = 6, Min = 0, Max = 50, },
     ['ScrollBarRounding']   = { DisplayName = "Scroll Bar Rounding", Category = "UI", Tooltip = "Frame Edge Rounding for the RGMercs UI", Default = 10, Min = 0, Max = 50, },
     ['ShowAdvancedOpts']    = { DisplayName = "Show Advanced Options", Category = "UI", Tooltip = "Show Advanced Options", Type = "Custom", Default = false, ConfigType = "Advanced", },
@@ -228,6 +230,8 @@ for _, v in pairs(Config.DefaultConfig) do
         Config.DefaultCategories:add(v.Category)
     end
 end
+
+Config.CommandHandlers = {}
 
 function Config:GetConfigFileName()
     return mq.configDir ..
@@ -270,7 +274,147 @@ function Config:LoadSettings()
         self:SaveSettings(false)
     end
 
+    self:UpdateCommandHandlers()
+
     return true
+end
+
+function Config:UpdateCommandHandlers()
+    self.CommandHandlers = {}
+
+    local allConfigs = {
+        ["Core"] = { settings = self.settings, defaults = Config.DefaultConfig, },
+    }
+
+    for name, data in pairs(RGMercConfig.SubModuleSettings) do
+        allConfigs[name] = { settings = data.settings, defaults = data.defaults, }
+    end
+
+    for moduleName, moduleData in pairs(allConfigs) do
+        for config, configData in pairs(moduleData.defaults or {}) do
+            local handled, usageString = self:GetUsageText(config, true, moduleData.defaults)
+
+            if handled then
+                if type(configData.Default) == 'number' then
+                    self.CommandHandlers[config:lower()] = {
+                        name = config,
+                        usage = usageString,
+                        subModule = moduleName,
+                        about = configData.Tooltip,
+                        handler = function(self, value)
+                            value = tonumber(value)
+                            if value > (moduleData.defaults[config].Max or 999) or value < (moduleData.defaults[config].Min or 0) then
+                                RGMercsLogger.log_info("\ayError: %s is not a valid setting for %s.", value, config)
+                                local _, update = self:GetUsageText(config, true, moduleData.defaults)
+                                RGMercsLogger.log_info(update)
+                                return
+                            end
+                            local _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\a-y%s :: Before :: %s", config, update)
+                            moduleData.settings[config] = value
+                            _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\ag%s :: After  :: %s", config, update)
+                            if moduleName == "Core" then
+                                self:SaveSettings(true)
+                            else
+                                RGMercModules:ExecModule(moduleName, "SaveSettings", true)
+                            end
+                        end,
+                    }
+                end
+                if type(configData.Default) == 'boolean' then
+                    self.CommandHandlers[config:lower()] = {
+                        name = config,
+                        usage = usageString,
+                        subModule = moduleName,
+                        about = configData.Tooltip,
+                        handler = function(self, value)
+                            local boolValue = false
+                            if value == "true" or value == "on" or (tonumber(value) or 0) >= 1 then
+                                boolValue = true
+                            end
+
+                            local _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\a-y%s :: Before :: %-5s", config, update)
+                            moduleData.settings[config] = boolValue
+                            _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\ag%s :: After  :: %-5ss", config, update)
+                            if moduleName == "Core" then
+                                self:SaveSettings(true)
+                            else
+                                RGMercModules:ExecModule(moduleName, "SaveSettings", true)
+                            end
+                        end,
+                    }
+                end
+                if type(configData.Default) == 'string' then
+                    self.CommandHandlers[config:lower()] = {
+                        name = config,
+                        usage = usageString,
+                        subModule = moduleName,
+                        about = configData.Tooltip,
+                        handler = function(self, value)
+                            local _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\a-y%s :: Before :: \"%s\"", config, update)
+                            moduleData.settings[config] = value
+                            _, update = self:GetUsageText(config, false, moduleData.defaults)
+                            RGMercsLogger.log_info("\ag%s :: After  :: \"%s\"", config, update)
+                            if moduleName == "Core" then
+                                self:SaveSettings(true)
+                            else
+                                RGMercModules:ExecModule(moduleName, "SaveSettings", true)
+                            end
+                        end,
+                    }
+                end
+            end
+        end
+    end
+end
+
+---@param config string
+---@param showUsageText boolean
+---@param defaults table
+---@return boolean
+---@return string
+function Config:GetUsageText(config, showUsageText, defaults)
+    local handledType = false
+    local usageString = showUsageText and string.format("/rgl set %s ", RGMercUtils.PadString(config, 25, false)) or ""
+    local configData = defaults[config]
+
+    local rangeText = ""
+    local defaultText = ""
+    local currentText = ""
+
+    if type(configData.Default) == 'number' then
+        rangeText = string.format("\aw<\a-y%d\aw-\a-y%d\ax>", configData.Min or 0, configData.Max or 999)
+        defaultText = string.format("[\a-tDefault: %d\ax]", configData.Default)
+        currentText = string.format("[\a-gCurrent: %d\ax]", RGMercUtils.GetSetting(config))
+        handledType = true
+    elseif type(configData.Default) == 'boolean' then
+        rangeText = string.format("\aw<\a-yon\aw|\a-yoff\ax>")
+        ---@diagnostic disable-next-line: param-type-mismatch
+        defaultText = string.format("[\a-tDefault: %s\ax]", RGMercUtils.BoolToString(configData.Default))
+        currentText = string.format("[\a-gCurrent: %s\ax]", RGMercUtils.BoolToString(RGMercUtils.GetSetting(config)))
+        handledType = true
+    elseif type(configData.Default) == 'string' then
+        rangeText = string.format("\aw<\"str\">")
+        defaultText = string.format("[\a-tDefault: \"%s\"\ax]", configData.Default)
+        currentText = string.format("[\a-gCurrent: \"%s\"\ax]", RGMercUtils.GetSetting(config))
+        handledType = true
+    end
+
+    usageString = usageString ..
+        string.format("%s %s %s", RGMercUtils.PadString(rangeText, 20, false), RGMercUtils.PadString(currentText, 20, false), RGMercUtils.PadString(defaultText, 20, false)
+        )
+
+    return handledType, usageString
+end
+
+function Config:SetSubModules(subModules)
+    self.SubModuleSettings = subModules
+    self:UpdateCommandHandlers()
+    self.Globals.SubmodulesLoaded = true
 end
 
 function Config:GetSettings()
@@ -283,6 +427,54 @@ end
 
 function Config:GetTimeSinceLastMove()
     return os.clock() - self.Globals.LastMove.TimeAtMove
+end
+
+function Config:GetCommandHandlers()
+    return { module = "Config", CommandHandlers = self.CommandHandlers, }
+end
+
+---@param config string
+---@param value any
+---@return boolean
+function Config:HandleBind(config, value)
+    local handled = false
+
+    if not config or config:lower() == "show" or config:len() == 0 then
+        self:UpdateCommandHandlers()
+
+        local allModules = {}
+        for name, _ in pairs(RGMercConfig.SubModuleSettings) do
+            table.insert(allModules, name)
+        end
+        table.sort(allModules)
+        table.insert(allModules, 1, "Core")
+
+        local sortedKeys = {}
+        for c, _ in pairs(self.CommandHandlers or {}) do
+            table.insert(sortedKeys, c)
+        end
+        table.sort(sortedKeys)
+
+        for _, subModuleName in ipairs(allModules) do
+            printf("\n\ag%s\aw Settings\n------------\n", subModuleName)
+            for _, c in pairs(sortedKeys) do
+                local d = self.CommandHandlers[c]
+                if d.subModule == subModuleName then
+                    printf("\am%-20s\aw - \atUsage: \ay%s\aw | %s", d.name, RGMercUtils.PadString(d.usage, 100, false), d.about)
+                end
+            end
+        end
+        return true
+    end
+
+    if self.CommandHandlers[config:lower()] ~= nil then
+        self.CommandHandlers[config:lower()].handler(self, value)
+        handled = true
+    else
+        RGMercsLogger.log_error("\at%s\aw - \arNot a valid config setting!\ax", config)
+    end
+
+    return handled
 end
 
 function Config:StoreLastMove()

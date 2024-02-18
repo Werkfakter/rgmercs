@@ -275,6 +275,9 @@ function Module:MezNow(mezId, useAE, useAA)
 end
 
 function Module:AEMezCheck()
+    -- Bard AE Mez doesn't work like others, it's a PBAE we handle in class config
+    if RGMercUtils.MyClassIs("brd") then return end
+
     local mezNPCFilter = string.format("npc radius %d targetable los playerstate 4", self.settings.MezRadius)
     local mezNPCPetFilter = string.format("npcpet radius %d targetable los playerstate 4", self.settings.MezRadius)
     local aeCount = mq.TLO.SpawnCount(mezNPCFilter)() + mq.TLO.SpawnCount(mezNPCPetFilter)()
@@ -282,6 +285,10 @@ function Module:AEMezCheck()
     local aeMezSpell = RGMercModules:ExecModule("Class", "GetResolvedActionMapItem", "MezAESpell")
 
     if not aeMezSpell or not aeMezSpell() then return end
+
+    if not aeMezSpell.AERange() or aeMezSpell.AERange() == 0 then
+        RGMercsLogger.log_warning("\arWarning AE Mez Spell: %s has no AERange!", aeMezSpell.RankName.Name())
+    end
 
     -- Make sure the mobs of concern are within rang
     if aeCount < self.settings.MezAECount then return end
@@ -298,8 +305,8 @@ function Module:AEMezCheck()
 
     -- Next make sure casting our AE won't anger ore mobs -- I'm lazy and not checking the AERange of the AA. I'm gonna assume if the
     -- AERange of the normal spell will piss them off, then the AA probably would too.
-    local angryMobCount = mq.TLO.SpawnCount(string.format("npc xtarhater loc %0.2f, %0.2f radius %d", nearestSpawn.X(), nearestSpawn.Y(), aeMezSpell.AERange()))()
-    local chillMobCount = mq.TLO.SpawnCount(string.format("npc loc %0.2f, %0.2f radius %d", nearestSpawn.X(), nearestSpawn.Y(), aeMezSpell.AERange()))()
+    local angryMobCount = mq.TLO.SpawnCount(string.format("npc xtarhater loc %0.2f, %0.2f radius %d", nearestSpawn.X(), nearestSpawn.Y(), aeMezSpell.AERange() or 0))()
+    local chillMobCount = mq.TLO.SpawnCount(string.format("npc loc %0.2f, %0.2f radius %d", nearestSpawn.X(), nearestSpawn.Y(), aeMezSpell.AERange() or 0))()
 
     -- Checking to see if we are auto attacking, or if we are actively casting a spell
     -- purpose for this is to catch auto attacking enchaters (who have lost their mind)
